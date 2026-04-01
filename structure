@@ -1,0 +1,40 @@
+app/
+│
+├── screens/
+│
+│   ├── auth/
+│   │   └── LoginScreen.tsx
+│   │
+│   ├── employee/
+│   │   ├── checkin/
+│   │   │   └── CheckInScreen.tsx
+│   │   │
+│   │   └── dashboard/ 
+│   │       ├── EmployeeDashboardScreen.tsx   ✅
+│   │       ├── ReportHistoryScreen.tsx
+│   │       └── ProfileScreen.tsx
+│   │
+│   │   └── rider/
+│   │       └── RiderDeliveryScreen.tsx
+│   │
+│   └── admin/
+│       ├── AdminDashboardScreen.tsx         ✅
+│       ├── EmployeesScreen.tsx
+│       ├── LocationsScreen.tsx
+│       ├── ReportsScreen.tsx
+│       └── PayrollScreen.tsx
+│
+│       ├── riders/
+│       │   └── RidersManagementScreen.tsx
+│       │
+│       ├── deliveries/
+│       │   └── OrdersManagementScreen.tsx
+│       │
+│       └── map/
+│           └── LiveTrackingMapScreen.tsx
+│
+├── components/
+├── services/
+├── utils/
+├── navigation/
+└── api/
