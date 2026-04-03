@@ -1,13 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import {
-  TextInput,
   Image,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
   Dimensions,
-  Animated,
   TouchableOpacity,
   useColorScheme,
   View as RNView,
@@ -22,101 +20,72 @@ import Button from "../../../components/Button";
 import { useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "../../navigation/AppNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useLoader } from "../../context/LoaderContext";
 
-
-const { width, height } = Dimensions.get("window");
-const BRAND = "#8b0111";
+const { width } = Dimensions.get("window");
 const WHITE = "#ffffff";
 
-
-
- type NavigationProp = NativeStackNavigationProp<
+type NavigationProp = NativeStackNavigationProp<
   RootStackParamList,
   "Login"
 >;
+
 // ── LoginScreen ───────────────────────────────────────────
 const LoginScreen: React.FC = () => {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+   const [localLoading, setLocalLoading] = useState(false); // Add local loading state
   const scheme = useColorScheme();
- 
+    const { withLoader, loading: globalLoading } = useLoader(); // Get global loading state
 
-const navigation = useNavigation<NavigationProp>();
+  const navigation = useNavigation<NavigationProp>();
   const dark = scheme === "dark";
 
-  // Staggered entrance animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
+const handleLogin = async () => {
+    setLocalLoading(true); // Set local loading
+    await withLoader(async () => {
+      // Simulate API
+      await new Promise(res => setTimeout(res, 1000));
+      
+      // Your login logic here
+      if (phone === "1" && password === "1") {
+        navigation.replace("Admin");
+      } 
+      else if (phone === "2" && password === "2") {
+        navigation.replace("CheckIn");
+      } 
+      else if (phone === "3" && password === "3") {
+        navigation.replace("RiderDeliveryScreen");
+      } 
+      else {
+        alert("Invalid credentials");
+        throw new Error("Invalid credentials");
+      }
+    });
+    setLocalLoading(false); // Clear local loading
+  };
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-        delay: 100,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 60,
-        friction: 12,
-        delay: 100,
-      }),
-    ]).start();
-  }, []);
-
-const handleLogin = () => {
-  setLoading(true);
-
-  setTimeout(() => {
-    setLoading(false);
-
- 
-    if (phone === "1" && password === "1") {
-      navigation.replace("Admin");
-    } 
-    else if (phone === "2" && password === "2") {
-      navigation.replace("CheckIn"); // Seller (employee)
-    } 
-    else if (phone === "3" && password === "3") {
-      navigation.replace("RiderDeliveryScreen"); // Rider
-    } 
-    else {
-      alert("Invalid credentials");
-    }
-
-  }, 800);
-};
+  // Use either local loading or global loading for the button
+  const isLoading = localLoading || globalLoading;
 
   const eyeColor = dark ? "#6C7883" : "#aaa";
   const bg = dark ? "#17212B" : WHITE;
 
   return (
-    // Outer container holds everything: keyboard area + banner
     <RNView style={[s.outer, { backgroundColor: bg }]}>
       <StatusBar
         barStyle={dark ? "light-content" : "dark-content"}
         backgroundColor={bg}
       />
 
-      {/* SafeAreaView wraps only the scrollable/keyboard content */}
       <SafeAreaView style={s.safeContent} edges={["top"]}>
         <KeyboardAvoidingView
           style={s.flex}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <Animated.View
-            style={[
-              s.root,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
-              },
-            ]}
-          >
+          <RNView style={s.root}>
             {/* ── LOGO ── */}
             <View style={s.logoWrap}>
               <Image source={Icon} style={s.logo} resizeMode="contain" />
@@ -161,18 +130,18 @@ const handleLogin = () => {
               <Button
                 label="Log In"
                 onPress={handleLogin}
-                loading={loading}
+                loading={isLoading}
                 style={{ marginTop: 4 }}
               />
 
               {/* Location note */}
               <Text style={s.locationNote}>Location Login Required</Text>
             </View>
-          </Animated.View>
+          </RNView>
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ── WAVE / BRAND BANNER ── lives OUTSIDE KeyboardAvoidingView ── */}
+      {/* ── WAVE / BRAND BANNER ── */}
       <SafeAreaView edges={["bottom"]} style={s.bannerSafe}>
         <BrandBanner />
       </SafeAreaView>
@@ -182,27 +151,26 @@ const handleLogin = () => {
 
 // ── StyleSheet ────────────────────────────────────────────
 const s = StyleSheet.create({
-  // Full-screen shell
   outer: {
     flex: 1,
   },
 
-  // Grows to fill space above the banner
   safeContent: {
     flex: 1,
   },
 
-  flex: { flex: 1 },
+  flex: { 
+    flex: 1 
+  },
 
   root: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center", // vertically centres content in remaining space
+    justifyContent: "center",
     backgroundColor: "transparent",
-    paddingBottom: 24,        // small breathing room above the banner
+    paddingBottom: 24,
   },
 
-  // ── Logo
   logoWrap: {
     width: 100,
     height: 100,
@@ -211,15 +179,19 @@ const s = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: "transparent",
   },
-  logo: { width: 90, height: 90 },
+  
+  logo: { 
+    width: 90, 
+    height: 90 
+  },
 
-  // ── Title
   title: {
     fontSize: 40,
     fontWeight: "800",
     letterSpacing: 0.3,
     textAlign: "center",
   },
+  
   subtitle: {
     fontSize: 13,
     fontWeight: "600",
@@ -231,14 +203,12 @@ const s = StyleSheet.create({
     textTransform: "uppercase",
   },
 
-  // ── Form
   form: {
     width: width * 0.84,
     alignItems: "center",
     zIndex: 1,
   },
 
-  // ── Location note
   locationNote: {
     marginTop: 18,
     fontSize: 12.5,
@@ -247,8 +217,11 @@ const s = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // ── Banner SafeArea (handles home indicator on iOS)
   bannerSafe: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: "transparent",
   },
 });

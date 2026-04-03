@@ -585,15 +585,15 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
 
         <View style={styles.headerCenter}>
           <Text style={styles.headerGreet}>Welcome back,</Text>
-          <Text style={styles.headerTitle}>Admin! 👋</Text>
+          <Text style={styles.headerTitle}>Admin</Text>
         </View>
 
-        {/* <View style={styles.headerActions}>
+        <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn} activeOpacity={0.75}>
             <Bell size={18} color={COLORS.white} />
             <View style={styles.notifDot} />
           </TouchableOpacity>
-        </View> */}
+        </View>
       </View>
 
       {/* ── Body ── */}
@@ -955,7 +955,7 @@ const styles = StyleSheet.create({
   },
   headerCenter: {
     flex: 1,
-    paddingBottom:20
+    paddingBottom: 20,
   },
   headerGreet: {
     fontSize: 11,
@@ -1037,9 +1037,14 @@ const styles = StyleSheet.create({
   kpiScroll: {
     marginBottom: 16,
     marginHorizontal: -18,
+
+    padding: 2,
   },
   kpiScrollContent: {
     paddingHorizontal: 18,
+
+    padding: 2,
+
     gap: 12,
     paddingRight: 24,
   },
