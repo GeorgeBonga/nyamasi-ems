@@ -13,8 +13,12 @@ import AdminDrawerNavigator from "./AdminDrawerNavigator";
 
 export type RootStackParamList = {
   Login: undefined;
-  CheckIn: undefined;
-  EmployeeDashboard: undefined;
+    CheckIn: {
+    employeeId: string;
+  };
+    EmployeeDashboard: {
+    employeeId: string;
+  };
   ReportHistoryScreen: undefined;
   Admin: undefined;
   RiderDeliveryScreen: undefined;

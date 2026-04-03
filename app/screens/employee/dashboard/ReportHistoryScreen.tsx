@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,15 +6,33 @@ import {
   ScrollView,
   StyleSheet,
   StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ChevronLeft, TrendingUp, Users, Gift, Calendar, Navigation } from "lucide-react-native";
-import { useNavigation } from "@react-navigation/native";
+import {
+  ChevronLeft,
+  TrendingUp,
+  Users,
+  Gift,
+  Calendar,
+  CheckCircle,
+  AlertTriangle,
+  Clock,
+} from "lucide-react-native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+
+import { getReportsByEmployee, Report } from "../../../data/dbService";
+
+// ─── Navigation types ─────────────────────────────────────────────────────────
+type HistoryRouteParams = {
+  ReportHistoryScreen: { employeeId: string };
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COLORS = {
   primary: "#8B0111",
   primaryDark: "#8B0111",
+  primaryMuted: "rgba(139,1,17,0.08)",
   white: "#FFFFFF",
   background: "#F0F5FB",
   cardBg: "#FFFFFF",
@@ -23,52 +41,44 @@ const COLORS = {
   textMuted: "#8FA3B8",
   border: "#D6E4F0",
   success: "#00897B",
+  successLight: "#E0F2F1",
+  warning: "#F57C00",
+  warningLight: "#FFF3E0",
   accentBlue: "#1565C0",
+  danger: "#C62828",
+  dangerLight: "#FFEBEE",
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface ReportEntry {
-  id: string;
-  date: string;          // display label  e.g. "Apr 12, 2026"
-  dayLabel: string;      // e.g. "Monday"
-  sales: number;
-  customers: number;
-  samplers: number;
-}
-
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-const REPORT_DATA: ReportEntry[] = [
-  { id: "1", date: "Apr 12, 2026", dayLabel: "Sunday",    sales: 20, customers: 110, samplers: 60 },
-  { id: "2", date: "Apr 11, 2026", dayLabel: "Saturday",  sales: 15, customers: 95,  samplers: 45 },
-  { id: "3", date: "Apr 10, 2026", dayLabel: "Friday",    sales: 22, customers: 130, samplers: 80 },
-  { id: "4", date: "Apr 9, 2026",  dayLabel: "Thursday",  sales: 18, customers: 102, samplers: 55 },
-  { id: "5", date: "Apr 8, 2026",  dayLabel: "Wednesday", sales: 25, customers: 145, samplers: 90 },
-  { id: "6", date: "Apr 7, 2026",  dayLabel: "Tuesday",   sales: 12, customers: 78,  samplers: 38 },
-  { id: "7", date: "Apr 6, 2026",  dayLabel: "Monday",    sales: 30, customers: 160, samplers: 100 },
-];
-
 // ─── Report Card ──────────────────────────────────────────────────────────────
-interface ReportCardProps {
-  entry: ReportEntry;
-  onPress: (entry: ReportEntry) => void;
-}
-
-const ReportCard: React.FC<ReportCardProps> = ({ entry, onPress }) => (
-  <TouchableOpacity
-    style={styles.card}
-    onPress={() => onPress(entry)}
-    activeOpacity={0.75}
-  >
-    {/* Left accent bar */}
-
+const ReportCard: React.FC<{ report: Report }> = ({ report }) => (
+  <View style={styles.card}>
     <View style={styles.cardBody}>
       {/* Date row */}
       <View style={styles.cardHeader}>
         <View style={styles.dateRow}>
           <Calendar size={14} color={COLORS.primary} />
-          <Text style={styles.cardDate}>{entry.date}</Text>
+          <Text style={styles.cardDate}>{report.date}</Text>
         </View>
-        <Text style={styles.cardDay}>{entry.dayLabel}</Text>
+        <View style={styles.cardHeaderRight}>
+          <Text style={styles.cardDay}>{report.dayName.toUpperCase()}</Text>
+          {/* Status pill */}
+          {report.flagged ? (
+            <View style={[styles.statusPill, { backgroundColor: COLORS.dangerLight }]}>
+              <AlertTriangle size={9} color={COLORS.danger} />
+              <Text style={[styles.statusPillText, { color: COLORS.danger }]}>Low</Text>
+            </View>
+          ) : report.submitted ? (
+            <View style={[styles.statusPill, { backgroundColor: COLORS.successLight }]}>
+              <CheckCircle size={9} color={COLORS.success} />
+              <Text style={[styles.statusPillText, { color: COLORS.success }]}>Done</Text>
+            </View>
+          ) : (
+            <View style={[styles.statusPill, { backgroundColor: COLORS.warningLight }]}>
+              <Clock size={9} color={COLORS.warning} />
+              <Text style={[styles.statusPillText, { color: COLORS.warning }]}>Pending</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Stats row */}
@@ -76,7 +86,9 @@ const ReportCard: React.FC<ReportCardProps> = ({ entry, onPress }) => (
         <View style={styles.statItem}>
           <TrendingUp size={14} color={COLORS.success} />
           <Text style={styles.statLabel}>Sales</Text>
-          <Text style={styles.statValue}>{entry.sales}</Text>
+          <Text style={[styles.statValue, { color: report.flagged ? COLORS.danger : COLORS.textPrimary }]}>
+            {report.sales}
+          </Text>
         </View>
 
         <View style={styles.statDivider} />
@@ -84,7 +96,7 @@ const ReportCard: React.FC<ReportCardProps> = ({ entry, onPress }) => (
         <View style={styles.statItem}>
           <Users size={14} color={COLORS.accentBlue} />
           <Text style={styles.statLabel}>Reached</Text>
-          <Text style={styles.statValue}>{entry.customers}</Text>
+          <Text style={styles.statValue}>{report.customersReached}</Text>
         </View>
 
         <View style={styles.statDivider} />
@@ -92,18 +104,32 @@ const ReportCard: React.FC<ReportCardProps> = ({ entry, onPress }) => (
         <View style={styles.statItem}>
           <Gift size={14} color={COLORS.primary} />
           <Text style={styles.statLabel}>Samplers</Text>
-          <Text style={styles.statValue}>{entry.samplers}</Text>
+          <Text style={styles.statValue}>{report.samplersGiven}</Text>
         </View>
       </View>
+
+      {/* Notes preview */}
+      {!!report.notes && (
+        <Text style={styles.notesPreview} numberOfLines={1}>
+         {report.notes}
+        </Text>
+      )}
+
+      {/* Location */}
+      <Text style={styles.locationText}>{report.location}</Text>
     </View>
-  </TouchableOpacity>
+  </View>
 );
 
 // ─── Summary Bar ──────────────────────────────────────────────────────────────
-const SummaryBar: React.FC = () => {
-  const totalSales     = REPORT_DATA.reduce((s, r) => s + r.sales, 0);
-  const totalCustomers = REPORT_DATA.reduce((s, r) => s + r.customers, 0);
-  const totalSamplers  = REPORT_DATA.reduce((s, r) => s + r.samplers, 0);
+interface SummaryBarProps {
+  reports: Report[];
+}
+
+const SummaryBar: React.FC<SummaryBarProps> = ({ reports }) => {
+  const totalSales     = reports.reduce((s, r) => s + r.sales, 0);
+  const totalCustomers = reports.reduce((s, r) => s + r.customersReached, 0);
+  const totalSamplers  = reports.reduce((s, r) => s + r.samplersGiven, 0);
 
   return (
     <View style={styles.summaryBar}>
@@ -126,67 +152,90 @@ const SummaryBar: React.FC = () => {
 };
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-interface ReportHistoryScreenProps {
-  onBack?: () => void;
-}
+const ReportHistoryScreen: React.FC = () => {
+  const navigation: any = useNavigation();
+  const route = useRoute<RouteProp<HistoryRouteParams, "ReportHistoryScreen">>();
+  const employeeId = route.params?.employeeId ?? "e001";
 
-const ReportHistoryScreen: React.FC<ReportHistoryScreenProps> = ({ onBack }) => {
-   const navigation: any = useNavigation();
-  const handleCardPress = (entry: ReportEntry) => {
-    // Navigate to detail or expand — wire up as needed
-    console.log("Pressed report:", entry.id);
-  };
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadReports = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getReportsByEmployee(employeeId);
+      setReports(data);
+    } finally {
+      setLoading(false);
+    }
+  }, [employeeId]);
+
+  useEffect(() => { loadReports(); }, [loadReports]);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primaryDark} />
 
-      {/* ── Header ── */}
-    <View style={styles.header}>
-  {/* LEFT */}
-  <TouchableOpacity
-    style={styles.backBtn}
-     onPress={() => navigation.goBack()}
-    activeOpacity={0.7}
-  >
-    <ChevronLeft size={22} color={COLORS.white} strokeWidth={2.5} />
-  </TouchableOpacity>
-
-  {/* CENTER */}
-  <View style={styles.center}>
-    <Text style={styles.headerTitle}>Report History</Text>
-  </View>
-
- 
-</View>
-
-      {/* ── Body ── */}
-      <View style={styles.body}>
-        {/* Summary totals */}
-        <SummaryBar />
-
-        {/* Section label */}
-        <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Recent Reports</Text>
-          <View style={styles.sectionLine} />
-          <Text style={styles.sectionCount}>{REPORT_DATA.length} entries</Text>
-        </View>
-
-        {/* Report list */}
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
         >
-          {REPORT_DATA.map((entry, index) => (
-            <React.Fragment key={entry.id}>
-              <ReportCard entry={entry} onPress={handleCardPress} />
-              {index < REPORT_DATA.length - 1 && (
-                <View style={styles.cardSeparator} />
+          <ChevronLeft size={22} color={COLORS.white} strokeWidth={2.5} />
+        </TouchableOpacity>
+        <View style={styles.center}>
+          <Text style={styles.headerTitle}>Report History</Text>
+        </View>
+        {/* Spacer to balance back button */}
+        <View style={{ width: 46 }} />
+      </View>
+
+      {/* Body */}
+      <View style={styles.body}>
+        {loading ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+          </View>
+        ) : (
+          <>
+            {/* Summary totals */}
+            <SummaryBar reports={reports} />
+
+            {/* Section label */}
+            <View style={styles.sectionRow}>
+              <Text style={styles.sectionTitle}>All Reports</Text>
+              <View style={styles.sectionLine} />
+              <Text style={styles.sectionCount}>{reports.length} entries</Text>
+            </View>
+
+            {/* Report list */}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.listContent}
+            >
+              {reports.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyTitle}>No Reports Yet</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Your daily reports will appear here once submitted.
+                  </Text>
+                </View>
+              ) : (
+                reports.map((report, index) => (
+                  <React.Fragment key={report.id}>
+                    <ReportCard report={report} />
+                    {index < reports.length - 1 && (
+                      <View style={styles.cardSeparator} />
+                    )}
+                  </React.Fragment>
+                ))
               )}
-            </React.Fragment>
-          ))}
-          <View style={{ height: 32 }} />
-        </ScrollView>
+              <View style={{ height: 32 }} />
+            </ScrollView>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -194,46 +243,28 @@ const ReportHistoryScreen: React.FC<ReportHistoryScreenProps> = ({ onBack }) => 
 
 // ─── StyleSheet ───────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: COLORS.primaryDark,
-  },
+  safe: { flex: 1, backgroundColor: COLORS.primaryDark },
 
   // Header
   header: {
     backgroundColor: COLORS.primaryDark,
-    paddingTop: 4,
-    paddingBottom: 14,
-    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-  paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
-   backBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    alignItems: "center",
-    justifyContent: "center",
+  backBtn: {
+    width: 46, height: 46, borderRadius: 23,
+    alignItems: "center", justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.15)",
   },
+  center: { flex: 1, alignItems: "center" },
+  headerTitle: {
+    fontSize: 18, fontWeight: "800", color: COLORS.white,
+    letterSpacing: 0.3, textAlign: "center",
+  },
 
-
-
-
-center: {
-  flex: 1,
-  alignItems: "center",
-},
-
-headerTitle: {
-  fontSize: 18,
-  fontWeight: "800",
-  color: COLORS.white,
-  letterSpacing: 0.3,
-  textAlign: "center",
-},
   // Body
   body: {
     flex: 1,
@@ -256,68 +287,44 @@ headerTitle: {
     alignItems: "center",
     marginBottom: 20,
     shadowColor: COLORS.primary,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
-  summaryItem: {
-    alignItems: "center",
-    flex: 1,
-  },
+  summaryItem: { alignItems: "center", flex: 1 },
   summaryValue: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: COLORS.textPrimary,
-    letterSpacing: -0.5,
+    fontSize: 22, fontWeight: "800", color: COLORS.textPrimary, letterSpacing: -0.5,
   },
   summaryLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: COLORS.textMuted,
-    marginTop: 3,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    fontSize: 11, fontWeight: "600", color: COLORS.textMuted,
+    marginTop: 3, textTransform: "uppercase", letterSpacing: 0.5,
   },
-  summaryDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: COLORS.border,
-  },
+  summaryDivider: { width: 1, height: 36, backgroundColor: COLORS.border },
 
   // Section row
   sectionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
-    gap: 8,
+    flexDirection: "row", alignItems: "center", marginBottom: 14, gap: 8,
   },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: COLORS.textPrimary,
-  },
-  sectionLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
+  sectionTitle: { fontSize: 15, fontWeight: "800", color: COLORS.textPrimary },
+  sectionLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
   sectionCount: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    fontSize: 11, fontWeight: "600", color: COLORS.textMuted,
+    textTransform: "uppercase", letterSpacing: 0.4,
   },
 
-  // List
-  listContent: {
-    paddingBottom: 8,
-  },
+  listContent: { paddingBottom: 8 },
 
   // Card
   card: {
     backgroundColor: COLORS.cardBg,
     borderRadius: 20,
-    flexDirection: "row",
     overflow: "hidden",
     shadowColor: COLORS.textPrimary,
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   cardBody: {
     flex: 1,
@@ -330,26 +337,26 @@ headerTitle: {
     justifyContent: "space-between",
     alignItems: "center",
   },
-  dateRow: {
+  cardHeaderRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   cardDate: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: COLORS.textPrimary,
-    letterSpacing: 0.1,
+    fontSize: 15, fontWeight: "800", color: COLORS.textPrimary, letterSpacing: 0.1,
   },
   cardDay: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
+    fontSize: 10, fontWeight: "600", color: COLORS.textMuted,
     letterSpacing: 0.4,
   },
+  statusPill: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
+  },
+  statusPillText: { fontSize: 9, fontWeight: "700" },
 
-  // Stats row inside card
+  // Stats row
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -358,32 +365,29 @@ headerTitle: {
     paddingVertical: 10,
     paddingHorizontal: 8,
   },
-  statItem: {
-    flex: 1,
-    alignItems: "center",
-    gap: 3,
-  },
+  statItem: { flex: 1, alignItems: "center", gap: 3 },
   statLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: COLORS.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    fontSize: 10, fontWeight: "600", color: COLORS.textMuted,
+    textTransform: "uppercase", letterSpacing: 0.4,
   },
   statValue: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: COLORS.textPrimary,
-    letterSpacing: -0.3,
+    fontSize: 17, fontWeight: "800", color: COLORS.textPrimary, letterSpacing: -0.3,
   },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: COLORS.border,
-  },
+  statDivider: { width: 1, height: 30, backgroundColor: COLORS.border },
 
-  cardSeparator: {
-    height: 10,
+  notesPreview: {
+    fontSize: 12, color: COLORS.textSecondary, fontWeight: "500",
+    fontStyle: "italic",
+  },
+  locationText: { fontSize: 11, color: COLORS.textMuted, fontWeight: "500" },
+
+  cardSeparator: { height: 10 },
+
+  // Empty state
+  emptyState: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32 },
+  emptyTitle: { fontSize: 18, fontWeight: "800", color: COLORS.textPrimary, marginBottom: 8 },
+  emptySubtitle: {
+    fontSize: 13, color: COLORS.textMuted, textAlign: "center", lineHeight: 20,
   },
 });
 

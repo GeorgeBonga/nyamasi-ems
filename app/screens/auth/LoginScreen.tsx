@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   useColorScheme,
   View as RNView,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Text, View } from "../../../components/Themed";
@@ -21,6 +22,7 @@ import { useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "../../navigation/AppNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useLoader } from "../../context/LoaderContext";
+import { login } from "../../data/dbService";
 
 const { width } = Dimensions.get("window");
 const WHITE = "#ffffff";
@@ -35,41 +37,71 @@ const LoginScreen: React.FC = () => {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [loading, setLoading] = useState(false);
-   const [localLoading, setLocalLoading] = useState(false); // Add local loading state
+  const [localLoading, setLocalLoading] = useState(false);
   const scheme = useColorScheme();
-    const { withLoader, loading: globalLoading } = useLoader(); // Get global loading state
+  const { withLoader, loading: globalLoading } = useLoader();
 
   const navigation = useNavigation<NavigationProp>();
   const dark = scheme === "dark";
 
-const handleLogin = async () => {
-    setLocalLoading(true); // Set local loading
-    await withLoader(async () => {
-      // Simulate API
-      await new Promise(res => setTimeout(res, 1000));
-      
-      // Your login logic here
-      if (phone === "1" && password === "1") {
-        navigation.replace("Admin");
-      } 
-      else if (phone === "2" && password === "2") {
-        navigation.replace("CheckIn");
-      } 
-      else if (phone === "3" && password === "3") {
-        navigation.replace("RiderDeliveryScreen");
-      } 
-      else {
-        alert("Invalid credentials");
-        throw new Error("Invalid credentials");
+  const handleLogin = async () => {
+    // Validate inputs
+    if (!phone.trim()) {
+      Alert.alert("Error", "Please enter your phone number");
+      return;
+    }
+    if (!password.trim()) {
+      Alert.alert("Error", "Please enter your password");
+      return;
+    }
+
+    setLocalLoading(true);
+    
+    try {
+      const result = await login(phone, password);
+
+      if (!result.success || !result.user) {
+        Alert.alert("Login Failed", result.error || "Invalid credentials. Please try again.");
+        return;
       }
-    });
-    setLocalLoading(false); // Clear local loading
+
+      const { role, employeeId } = result.user;
+      const employee = result.employee;
+
+      console.log("Login successful:", { role, employeeId, employeeName: employee?.fullName });
+
+      // Navigate based on user role
+      switch (role) {
+        case "admin":
+          navigation.replace("Admin");
+          break;
+          
+        case "employee":
+          // Pass employeeId to CheckIn screen
+          if (!employeeId) {
+            Alert.alert("Error", "Employee profile not found. Please contact administrator.");
+            return;
+          }
+          navigation.replace("CheckIn", { employeeId });
+          break;
+          
+        case "rider":
+          navigation.replace("RiderDeliveryScreen");
+          break;
+          
+        default:
+          Alert.alert("Error", "Unknown user role. Please contact administrator.");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    } finally {
+      setLocalLoading(false);
+    }
   };
 
   // Use either local loading or global loading for the button
   const isLoading = localLoading || globalLoading;
-
   const eyeColor = dark ? "#6C7883" : "#aaa";
   const bg = dark ? "#17212B" : WHITE;
 
@@ -103,6 +135,7 @@ const handleLogin = async () => {
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
+                autoCapitalize="none"
               />
 
               {/* Password */}
@@ -111,6 +144,7 @@ const handleLogin = async () => {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPass}
+                autoCapitalize="none"
                 rightElement={
                   <TouchableOpacity
                     onPress={() => setShowPass(!showPass)}
@@ -133,6 +167,8 @@ const handleLogin = async () => {
                 loading={isLoading}
                 style={{ marginTop: 4 }}
               />
+
+         
 
               {/* Location note */}
               <Text style={s.locationNote}>Location Login Required</Text>
