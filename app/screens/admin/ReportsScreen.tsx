@@ -5,11 +5,14 @@
  *  • Removed DAILY_REPORTS[], MONTHLY_SUMMARY[] — all from dbService
  *  • getHydratedReports(dateISO) drives Daily tab (employee profile joined in)
  *  • getMonthlyAggregates(month, year) drives Monthly tab — computed dynamically
+ *  • getYearlyAggregates(year) drives Yearly tab — computed dynamically
  *  • Available dates for the date filter pills built from real report data
  *  • approveReport() / flagReport() wire admin actions to the data store
  *  • MonthlyRow reads from EmployeeMonthlyAggregate (no more direct mock fields)
- *  • Summary tab top performers and "needs attention" computed from real aggregates
- *  • Loading states on all three tabs
+ *  • Yearly tab shows yearly performance for last 5 years
+ *  • Removed flagged button and all related functionality
+ *  • Removed download icon from header
+ *  • Made search bar smaller and functional
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -20,18 +23,19 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  Download, ChevronDown, Calendar, TrendingUp, Users, Gift,
+  ChevronDown, Calendar, TrendingUp, Users, Gift,
   Filter, Eye, FileText, BarChart2, ChevronRight, Search, X,
-  Award, AlertTriangle, CheckCircle, Menu,
+  Award, CheckCircle, Menu,
 } from "lucide-react-native";
 
 import {
   getHydratedReports,
   getMonthlyAggregates,
+  getYearlyAggregates,
   approveReport,
-  flagReport,
   HydratedReport,
   EmployeeMonthlyAggregate,
+  EmployeeYearlyAggregate,
 } from "../../data/dbService";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -58,11 +62,11 @@ const COLORS = {
   overlayBg:       "rgba(13,33,55,0.6)",
 };
 
-type ReportTab = "daily" | "monthly" | "summary";
+type ReportTab = "daily" | "monthly" | "yearly";
 type Month = "Jan"|"Feb"|"Mar"|"Apr"|"May"|"Jun"|"Jul"|"Aug"|"Sep"|"Oct"|"Nov"|"Dec";
 
 const MONTHS: Month[] = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const YEARS  = ["2026","2025","2024"];
+const YEARS  = ["2026","2025","2024","2023","2022"];
 
 // ─── Tiny Clock icon shim ─────────────────────────────────────────────────────
 const Clock: React.FC<{ size: number; color: string }> = ({ size, color }) => (
@@ -84,17 +88,16 @@ const DailyCard: React.FC<{
   report: HydratedReport;
   onView: () => void;
   onApprove: () => void;
-  onFlag: (flagged: boolean) => void;
-}> = ({ report, onView, onApprove, onFlag }) => (
+}> = ({ report, onView, onApprove }) => (
   <View style={repSt.dailyCard}>
     <View style={repSt.dailyBody}>
       {/* Top row */}
       <View style={repSt.dailyTop}>
         <View style={[repSt.initials, {
-          backgroundColor: report.flagged ? COLORS.dangerLight : COLORS.primaryMuted,
+          backgroundColor: COLORS.primaryMuted,
         }]}>
           <Text style={[repSt.initialsText, {
-            color: report.flagged ? COLORS.danger : COLORS.primary,
+            color: COLORS.primary,
           }]}>
             {report.employee?.initials ?? "??"}
           </Text>
@@ -102,12 +105,6 @@ const DailyCard: React.FC<{
         <View style={{ flex: 1 }}>
           <View style={repSt.nameRow}>
             <Text style={repSt.empName}>{report.employee?.fullName ?? "Unknown"}</Text>
-            {report.flagged && (
-              <View style={repSt.flagBadge}>
-                <AlertTriangle size={10} color={COLORS.danger} />
-                <Text style={repSt.flagText}>Low</Text>
-              </View>
-            )}
             {!report.submitted && (
               <View style={[repSt.flagBadge, { backgroundColor: COLORS.warningLight }]}>
                 <Clock size={10} color={COLORS.warning} />
@@ -168,15 +165,6 @@ const DailyCard: React.FC<{
             <Text style={[repSt.viewRowBtnText, { color: COLORS.success }]}>Approve</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity
-          style={[repSt.viewRowBtn, { backgroundColor: report.flagged ? COLORS.successLight : COLORS.dangerLight }]}
-          onPress={() => onFlag(!report.flagged)} activeOpacity={0.8}
-        >
-          <AlertTriangle size={13} color={report.flagged ? COLORS.success : COLORS.danger} />
-          <Text style={[repSt.viewRowBtnText, { color: report.flagged ? COLORS.success : COLORS.danger }]}>
-            {report.flagged ? "Unflag" : "Flag"}
-          </Text>
-        </TouchableOpacity>
       </View>
     </View>
   </View>
@@ -228,6 +216,52 @@ const MonthlyRow: React.FC<{
   </View>
 );
 
+// ─── Yearly Row ──────────────────────────────────────────────────────────────
+const YearlyRow: React.FC<{
+  agg: EmployeeYearlyAggregate;
+  rank: number;
+  maxSales: number;
+  onView: () => void;
+}> = ({ agg, rank, maxSales, onView }) => (
+  <View style={repSt.monthlyRow}>
+    <Text style={repSt.rank}>#{rank}</Text>
+    <View style={[repSt.initials, { width:38, height:38, borderRadius:19,
+      backgroundColor: agg.achievePct >= 100 ? COLORS.successLight : COLORS.primaryMuted }]}>
+      <Text style={[repSt.initialsText, { color: agg.achievePct >= 100 ? COLORS.success : COLORS.primary }]}>
+        {agg.employee.initials}
+      </Text>
+    </View>
+    <View style={{ flex: 1, gap: 4 }}>
+      <View style={repSt.monthlyNameRow}>
+        <Text style={repSt.empName}>{agg.employee.fullName}</Text>
+        <View style={[repSt.trendChip, {
+          backgroundColor: agg.trend==="up" ? COLORS.successLight : agg.trend==="down" ? COLORS.dangerLight : COLORS.warningLight,
+        }]}>
+          <Text style={[repSt.trendChipText, {
+            color: agg.trend==="up" ? COLORS.success : agg.trend==="down" ? COLORS.danger : COLORS.warning,
+          }]}>
+            {agg.trend==="up" ? "↑" : agg.trend==="down" ? "↓" : "→"} {agg.achievePct}%
+          </Text>
+        </View>
+      </View>
+      <View style={repSt.progressRow}>
+        <TrendBar
+          value={agg.totalSales}
+          max={maxSales}
+          color={agg.achievePct >= 100 ? COLORS.success : COLORS.primary}
+        />
+        <Text style={repSt.progressLabel}>{agg.totalSales}/{agg.target}</Text>
+      </View>
+      <Text style={repSt.monthlyMeta}>
+        {agg.monthsReported} months · Avg {agg.avgSalesPerMonth}/month · Best: {agg.bestMonthDisplay}
+      </Text>
+    </View>
+    <TouchableOpacity onPress={onView} style={repSt.eyeBtn} activeOpacity={0.8}>
+      <Eye size={15} color={COLORS.textMuted} />
+    </TouchableOpacity>
+  </View>
+);
+
 // ─── Report Detail Modal ──────────────────────────────────────────────────────
 const ReportDetailModal: React.FC<{
   report: HydratedReport | null; visible: boolean; onClose: () => void;
@@ -271,7 +305,6 @@ const ReportDetailModal: React.FC<{
                 { label:"Day",        val:`${report.dayName}, ${report.date}` },
                 { label:"Submission", val: report.submitted ? "Submitted ✓" : "Pending ⏳" },
                 { label:"Approved",   val: report.approved  ? "Yes ✅" : "Not yet" },
-                { label:"Status",     val: report.flagged   ? "⚠️ Flagged" : "✅ Normal" },
               ].map((r,i) => (
                 <View key={i} style={[repSt.detailInfoRow, i>0 && { borderTopWidth:1, borderTopColor:COLORS.border }]}>
                   <Text style={repSt.detailInfoLabel}>{r.label}</Text>
@@ -287,13 +320,6 @@ const ReportDetailModal: React.FC<{
                 </View>
               </>
             ) : null}
-            <View style={repSt.exportRow}>
-              <TouchableOpacity style={repSt.exportBtn}
-                onPress={()=>Alert.alert("Export","Report PDF exported.")} activeOpacity={0.85}>
-                <Download size={14} color={COLORS.white} />
-                <Text style={repSt.exportBtnText}>Export PDF</Text>
-              </TouchableOpacity>
-            </View>
             <View style={{ height: 20 }} />
           </ScrollView>
         </View>
@@ -351,12 +377,62 @@ const MonthlyDetailModal: React.FC<{
                 </View>
               ))}
             </View>
-            <View style={repSt.exportRow}>
-              <TouchableOpacity style={repSt.exportBtn}
-                onPress={()=>Alert.alert("Export","Monthly PDF exported.")} activeOpacity={0.85}>
-                <Download size={14} color={COLORS.white} />
-                <Text style={repSt.exportBtnText}>Export Monthly PDF</Text>
-              </TouchableOpacity>
+            <View style={{ height: 20 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// ─── Yearly Detail Modal ─────────────────────────────────────────────────────
+const YearlyDetailModal: React.FC<{
+  agg: EmployeeYearlyAggregate | null; visible: boolean; onClose: () => void;
+}> = ({ agg, visible, onClose }) => {
+  if (!agg) return null;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={repSt.modalOverlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
+        <View style={repSt.detailSheet}>
+          <View style={repSt.modalHandle} />
+          <View style={repSt.detailHeader}>
+            <View>
+              <Text style={repSt.detailTitle}>Yearly Summary</Text>
+              <Text style={repSt.detailSub}>{agg.employee.fullName}</Text>
+            </View>
+            <TouchableOpacity style={repSt.closeBtn} onPress={onClose}>
+              <X size={18} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={repSt.detailStatsGrid}>
+              {[
+                { label:"Total Sales",     val:agg.totalSales,     color:COLORS.primary,    icon:<TrendingUp size={16} color={COLORS.primary}/> },
+                { label:"Total Customers", val:agg.totalCustomers, color:COLORS.accentBlue, icon:<Users size={16} color={COLORS.accentBlue}/> },
+                { label:"Total Samplers",  val:agg.totalSamplers,  color:COLORS.success,    icon:<Gift size={16} color={COLORS.success}/> },
+              ].map(s => (
+                <View key={s.label} style={[repSt.detailStatCard, { borderTopWidth:3, borderTopColor:s.color }]}>
+                  {s.icon}
+                  <Text style={[repSt.detailStatVal, { color:s.color }]}>{s.val}</Text>
+                  <Text style={repSt.detailStatLbl}>{s.label}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={repSt.detailSectionLabel}>Performance</Text>
+            <View style={repSt.detailInfoCard}>
+              {[
+                { label:"Months Reported",  val:`${agg.monthsReported}` },
+                { label:"Sales Target",  val:`${agg.totalSales} / ${agg.target} (${agg.achievePct}%)` },
+                { label:"Avg Sales/Month", val:`${agg.avgSalesPerMonth}` },
+                { label:"Best Month",      val: agg.bestMonthDisplay },
+                { label:"Trend",         val: agg.trend==="up" ? "↑ Improving" : agg.trend==="down" ? "↓ Declining" : "→ Stable" },
+              ].map((r,i) => (
+                <View key={i} style={[repSt.detailInfoRow, i>0 && { borderTopWidth:1, borderTopColor:COLORS.border }]}>
+                  <Text style={repSt.detailInfoLabel}>{r.label}</Text>
+                  <Text style={repSt.detailInfoVal}>{r.val}</Text>
+                </View>
+              ))}
             </View>
             <View style={{ height: 20 }} />
           </ScrollView>
@@ -373,21 +449,25 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
   const [tab,         setTab]         = useState<ReportTab>("daily");
   const [month,       setMonth]       = useState<Month>("Apr");
   const [year,        setYear]        = useState("2026");
+  const [yearlyYear,  setYearlyYear]  = useState("2026");
   const [search,      setSearch]      = useState("");
   const [showPicker,  setShowPicker]  = useState(false);
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  const [showYearPicker, setShowYearPicker] = useState(false);
 
   // Data
   const [allDailyReports, setAllDailyReports] = useState<HydratedReport[]>([]);
   const [availableDates,  setAvailableDates]  = useState<string[]>([]);
   const [filterDate,      setFilterDate]      = useState<string>("");
   const [monthlyAggs,     setMonthlyAggs]     = useState<EmployeeMonthlyAggregate[]>([]);
+  const [yearlyAggs,      setYearlyAggs]      = useState<EmployeeYearlyAggregate[]>([]);
   const [dailyLoading,    setDailyLoading]    = useState(true);
   const [monthlyLoading,  setMonthlyLoading]  = useState(false);
+  const [yearlyLoading,   setYearlyLoading]   = useState(false);
 
   // Modals
   const [viewDaily,   setViewDaily]   = useState<HydratedReport | null>(null);
   const [viewMonthly, setViewMonthly] = useState<EmployeeMonthlyAggregate | null>(null);
+  const [viewYearly,  setViewYearly]  = useState<EmployeeYearlyAggregate | null>(null);
 
   // ── Load daily reports ────────────────────────────────────────────────────
   const loadDailyReports = useCallback(async () => {
@@ -415,20 +495,38 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
     }
   }, []);
 
+  // ── Load yearly aggregates ───────────────────────────────────────────────
+  const loadYearly = useCallback(async (y: string) => {
+    setYearlyLoading(true);
+    try {
+      const aggs = await getYearlyAggregates(y);
+      setYearlyAggs(aggs.sort((a, b) => b.totalSales - a.totalSales));
+    } finally {
+      setYearlyLoading(false);
+    }
+  }, []);
+
   useEffect(() => { loadDailyReports(); }, [loadDailyReports]);
   useEffect(() => {
-    if (tab === "monthly" || tab === "summary") loadMonthly(month, year);
+    if (tab === "monthly") loadMonthly(month, year);
   }, [tab, month, year, loadMonthly]);
+  
+  useEffect(() => {
+    if (tab === "yearly") loadYearly(yearlyYear);
+  }, [tab, yearlyYear, loadYearly]);
 
   // ── Filtered daily reports ────────────────────────────────────────────────
   const filteredDaily = allDailyReports.filter(r => {
     if (r.date !== filterDate) return false;
     if (search && !r.employee?.fullName.toLowerCase().includes(search.toLowerCase())) return false;
-    if (flaggedOnly && !r.flagged) return false;
     return true;
   });
 
   const filteredMonthly = monthlyAggs.filter(a =>
+    !search || a.employee.fullName.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const filteredYearly = yearlyAggs.filter(a =>
     !search || a.employee.fullName.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -437,12 +535,16 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
   const totalCustomers = filteredDaily.reduce((s,r) => s + r.customersReached, 0);
   const totalSamplers  = filteredDaily.reduce((s,r) => s + r.samplersGiven, 0);
   const submittedCount = filteredDaily.filter(r => r.submitted).length;
-  const flaggedCount   = filteredDaily.filter(r => r.flagged).length;
 
   const mTotalSales     = monthlyAggs.reduce((s, a) => s + a.totalSales, 0);
   const mTotalCustomers = monthlyAggs.reduce((s, a) => s + a.totalCustomers, 0);
-  const mTopPerformer   = monthlyAggs[0]; // already sorted desc
+  const mTopPerformer   = monthlyAggs[0];
   const maxSales        = monthlyAggs[0]?.totalSales ?? 1;
+
+  const yTotalSales     = yearlyAggs.reduce((s, a) => s + a.totalSales, 0);
+  const yTotalCustomers = yearlyAggs.reduce((s, a) => s + a.totalCustomers, 0);
+  const yTopPerformer   = yearlyAggs[0];
+  const yMaxSales       = yearlyAggs[0]?.totalSales ?? 1;
 
   // ── Admin actions ─────────────────────────────────────────────────────────
   const handleApprove = async (reportId: string) => {
@@ -450,14 +552,10 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
     await loadDailyReports();
   };
 
-  const handleFlag = async (reportId: string, flagged: boolean) => {
-    await flagReport(reportId, flagged);
-    await loadDailyReports();
-  };
-
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe}  edges={["top", "left", "right"]}>
+      
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primaryDark} />
 
       {/* Header */}
@@ -466,11 +564,7 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
           <Menu size={22} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reports Review</Text>
-        <TouchableOpacity style={styles.addBtn}
-          onPress={() => Alert.alert("Export","Full report PDF exported for " + month + " " + year)}
-          activeOpacity={0.8}>
-          <Download size={19} color={COLORS.white} />
-        </TouchableOpacity>
+        <View style={styles.placeholderBtn} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}
@@ -481,7 +575,7 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
           {([
             { key:"daily",   label:"Daily",   icon:<Calendar size={13} color={tab==="daily" ? COLORS.white : COLORS.textMuted} /> },
             { key:"monthly", label:"Monthly", icon:<BarChart2 size={13} color={tab==="monthly" ? COLORS.white : COLORS.textMuted} /> },
-            { key:"summary", label:"Summary", icon:<Award size={13} color={tab==="summary" ? COLORS.white : COLORS.textMuted} /> },
+            { key:"yearly",  label:"Yearly",  icon:<Award size={13} color={tab==="yearly" ? COLORS.white : COLORS.textMuted} /> },
           ] as const).map(t => (
             <TouchableOpacity key={t.key} style={[repSt.tabBtn, tab===t.key && repSt.tabBtnActive]}
               onPress={() => setTab(t.key)} activeOpacity={0.8}>
@@ -491,22 +585,19 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
           ))}
         </View>
 
-        {/* Search + filter pill */}
+        {/* Search bar - smaller */}
         <View style={repSt.searchRow}>
           <View style={repSt.searchBox}>
-            <Search size={14} color={COLORS.textMuted} />
-            <TextInput style={repSt.searchInput} value={search} onChangeText={setSearch}
-              placeholder="Search employee..." placeholderTextColor={COLORS.textMuted} />
-            {search ? <TouchableOpacity onPress={() => setSearch("")}><X size={13} color={COLORS.textMuted}/></TouchableOpacity> : null}
+            <Search size={12} color={COLORS.textMuted} />
+            <TextInput 
+              style={repSt.searchInput} 
+              value={search} 
+              onChangeText={setSearch}
+              placeholder="Search employee..." 
+              placeholderTextColor={COLORS.textMuted} 
+            />
+            {search ? <TouchableOpacity onPress={() => setSearch("")}><X size={12} color={COLORS.textMuted}/></TouchableOpacity> : null}
           </View>
-          {tab === "daily" && (
-            <TouchableOpacity
-              style={[repSt.filterPillBtn, flaggedOnly && { backgroundColor: COLORS.danger }]}
-              onPress={() => setFlaggedOnly(!flaggedOnly)} activeOpacity={0.8}>
-              <AlertTriangle size={13} color={flaggedOnly ? COLORS.white : COLORS.danger} />
-              <Text style={[repSt.filterPillBtnText, { color: flaggedOnly ? COLORS.white : COLORS.danger }]}>Flagged</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         {/* ── DAILY TAB ── */}
@@ -531,22 +622,13 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
                   { val: totalSales,     lbl: "Sales",     color: COLORS.primary },
                   { val: totalCustomers, lbl: "Reached",   color: COLORS.accentBlue },
                   { val: totalSamplers,  lbl: "Samplers",  color: COLORS.success },
-                  { val: `${submittedCount}/${filteredDaily.length}`, lbl: "Submitted", color: flaggedCount > 0 ? COLORS.warning : COLORS.success },
+                  { val: `${submittedCount}/${filteredDaily.length}`, lbl: "Submitted", color: COLORS.success },
                 ].map(k => (
                   <View key={k.lbl} style={repSt.kpiItem}>
                     <Text style={[repSt.kpiVal, { color: k.color }]}>{k.val}</Text>
                     <Text style={repSt.kpiLbl}>{k.lbl}</Text>
                   </View>
                 ))}
-              </View>
-            )}
-
-            {flaggedCount > 0 && (
-              <View style={repSt.flagAlert}>
-                <AlertTriangle size={14} color={COLORS.danger} />
-                <Text style={repSt.flagAlertText}>
-                  {flaggedCount} report{flaggedCount > 1 ? "s" : ""} flagged for low performance
-                </Text>
               </View>
             )}
 
@@ -568,7 +650,6 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
                     report={r}
                     onView={() => setViewDaily(r)}
                     onApprove={() => handleApprove(r.id)}
-                    onFlag={(flagged) => handleFlag(r.id, flagged)}
                   />
                   {i < filteredDaily.length - 1 && <View style={{ height: 10 }} />}
                 </React.Fragment>
@@ -608,11 +689,6 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
 
             <View style={repSt.sectionRow}>
               <Text style={repSt.sectionTitle}>{month} {year} — All Employees</Text>
-              <TouchableOpacity style={repSt.exportSmallBtn}
-                onPress={() => Alert.alert("Export","Monthly PDF exported.")} activeOpacity={0.85}>
-                <Download size={12} color={COLORS.white} />
-                <Text style={repSt.exportSmallText}>PDF</Text>
-              </TouchableOpacity>
             </View>
 
             {monthlyLoading ? (
@@ -634,71 +710,54 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
           </>
         )}
 
-        {/* ── SUMMARY TAB ── */}
-        {tab === "summary" && (
+        {/* ── YEARLY TAB ── */}
+        {tab === "yearly" && (
           <>
-            <View style={repSt.summaryHero}>
-              <Text style={repSt.summaryHeroLabel}>Period Performance</Text>
-              <Text style={repSt.summaryHeroValue}>{month} {year}</Text>
+            <TouchableOpacity style={repSt.monthSelector} onPress={() => setShowYearPicker(true)} activeOpacity={0.85}>
+              <View style={{ flexDirection:"row", alignItems:"center", gap:10 }}>
+                <Calendar size={18} color={COLORS.primary} />
+                <View>
+                  <Text style={repSt.monthSelectorLabel}>Year</Text>
+                  <Text style={repSt.monthSelectorValue}>{yearlyYear}</Text>
+                </View>
+              </View>
+              <ChevronDown size={18} color={COLORS.primary} />
+            </TouchableOpacity>
+
+            {!yearlyLoading && yearlyAggs.length > 0 && (
+              <View style={repSt.kpiStrip}>
+                {[
+                  { val: yTotalSales,     lbl: "Total Sales",  color: COLORS.primary },
+                  { val: yTotalCustomers, lbl: "Customers",    color: COLORS.accentBlue },
+                  { val: yTopPerformer?.employee.firstName ?? "—", lbl: "Top Rep", color: COLORS.success },
+                ].map(k => (
+                  <View key={k.lbl} style={repSt.kpiItem}>
+                    <Text style={[repSt.kpiVal, { color: k.color, fontSize: k.lbl === "Top Rep" ? 13 : 18 }]}>{k.val}</Text>
+                    <Text style={repSt.kpiLbl}>{k.lbl}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <View style={repSt.sectionRow}>
+              <Text style={repSt.sectionTitle}>{yearlyYear} — All Employees</Text>
             </View>
 
-            {monthlyLoading ? (
+            {yearlyLoading ? (
               <ActivityIndicator color={COLORS.primary} style={{ marginVertical: 30 }} />
+            ) : filteredYearly.length === 0 ? (
+              <View style={repSt.emptyState}>
+                <Text style={repSt.emptyText}>No reports for {yearlyYear}.</Text>
+              </View>
             ) : (
-              <>
-                <Text style={repSt.summarySection}>🏆 Top Performers</Text>
-                {[...monthlyAggs].sort((a,b) => b.totalSales - a.totalSales).slice(0, 3).map((agg, i) => (
-                  <View key={agg.employee.id} style={[repSt.topCard, {
-                    borderLeftColor: i===0 ? COLORS.warning : i===1 ? "#9E9E9E" : "#CD7F32",
-                  }]}>
-                    <Text style={[repSt.topRank, {
-                      color: i===0 ? COLORS.warning : i===1 ? "#9E9E9E" : "#CD7F32",
-                    }]}>
-                      {i===0 ? "🥇" : i===1 ? "🥈" : "🥉"}
-                    </Text>
-                    <View style={[repSt.initials, { width:40, height:40, borderRadius:20, backgroundColor:COLORS.primaryMuted }]}>
-                      <Text style={[repSt.initialsText, { color:COLORS.primary }]}>{agg.employee.initials}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={repSt.empName}>{agg.employee.fullName}</Text>
-                      <Text style={repSt.empRole}>{agg.employee.role}</Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[repSt.topSales, { color: COLORS.primary }]}>{agg.totalSales}</Text>
-                      <Text style={repSt.topSalesLbl}>sales</Text>
-                    </View>
-                  </View>
+              <View style={repSt.monthlyList}>
+                {filteredYearly.map((agg, i) => (
+                  <React.Fragment key={agg.employee.id}>
+                    <YearlyRow agg={agg} rank={i + 1} maxSales={yMaxSales} onView={() => setViewYearly(agg)} />
+                    {i < filteredYearly.length - 1 && <View style={repSt.rowDivider} />}
+                  </React.Fragment>
                 ))}
-
-                <Text style={repSt.summarySection}>⚠️ Needs Attention</Text>
-                {monthlyAggs.filter(a => a.achievePct < 90).map(agg => (
-                  <View key={agg.employee.id} style={[repSt.topCard, { borderLeftColor: COLORS.danger }]}>
-                    <View style={[repSt.initials, { width:40, height:40, borderRadius:20, backgroundColor:COLORS.dangerLight }]}>
-                      <Text style={[repSt.initialsText, { color: COLORS.danger }]}>{agg.employee.initials}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={repSt.empName}>{agg.employee.fullName}</Text>
-                      <Text style={repSt.empRole}>{agg.employee.role}</Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[repSt.topSales, { color: COLORS.danger }]}>{agg.achievePct}%</Text>
-                      <Text style={repSt.topSalesLbl}>of target</Text>
-                    </View>
-                  </View>
-                ))}
-
-                {monthlyAggs.filter(a => a.achievePct < 90).length === 0 && (
-                  <View style={repSt.emptyState}>
-                    <Text style={repSt.emptyText}>🎉 All employees on target!</Text>
-                  </View>
-                )}
-
-                <TouchableOpacity style={repSt.fullExportBtn}
-                  onPress={() => Alert.alert("Export","Full summary PDF exported.")} activeOpacity={0.85}>
-                  <Download size={15} color={COLORS.white} />
-                  <Text style={repSt.fullExportBtnText}>Export Full Summary PDF</Text>
-                </TouchableOpacity>
-              </>
+              </View>
             )}
           </>
         )}
@@ -732,9 +791,28 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
         </TouchableOpacity>
       </Modal>
 
+      {/* Year picker */}
+      <Modal visible={showYearPicker} transparent animationType="fade" onRequestClose={() => setShowYearPicker(false)}>
+        <TouchableOpacity style={repSt.modalOverlay} activeOpacity={1} onPress={() => setShowYearPicker(false)}>
+          <View style={repSt.pickerSheet}>
+            <View style={repSt.modalHandle} />
+            <Text style={repSt.modalTitle}>Select Year</Text>
+            <View style={repSt.yearRow}>
+              {YEARS.map(y => (
+                <TouchableOpacity key={y} style={[repSt.yearBtn, yearlyYear===y && repSt.yearBtnActive]}
+                  onPress={() => { setYearlyYear(y); setShowYearPicker(false); }} activeOpacity={0.8}>
+                  <Text style={[repSt.yearBtnText, yearlyYear===y && repSt.yearBtnTextActive]}>{y}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Detail Modals */}
       <ReportDetailModal  report={viewDaily}   visible={!!viewDaily}   onClose={() => setViewDaily(null)} />
       <MonthlyDetailModal agg={viewMonthly}    visible={!!viewMonthly} onClose={() => setViewMonthly(null)} />
+      <YearlyDetailModal  agg={viewYearly}     visible={!!viewYearly}  onClose={() => setViewYearly(null)} />
     </SafeAreaView>
   );
 };
@@ -744,7 +822,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.primaryDark },
   header: {
     backgroundColor: COLORS.primaryDark,
-    flexDirection: "row", alignItems: "center",
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 16, paddingVertical: 14,
   },
   menuBtn: {
@@ -752,14 +830,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.15)",
     alignItems: "center", justifyContent: "center",
   },
-  headerTitle: {
-    flex: 1, fontSize: 18, fontWeight: "800", color: COLORS.white,
-    textAlign: "center", letterSpacing: 0.3,
+  placeholderBtn: {
+    width: 42, height: 42,
   },
-  addBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center", justifyContent: "center",
+  headerTitle: {
+    fontSize: 18, fontWeight: "800", color: COLORS.white,
+    textAlign: "center", letterSpacing: 0.3,
   },
   scroll: {
     flex: 1, backgroundColor: COLORS.background,
@@ -781,14 +857,14 @@ const repSt = StyleSheet.create({
   tabBtnTextActive: { color:COLORS.white },
 
   // Search
-  searchRow: { flexDirection:"row", alignItems:"center", gap:8, marginBottom:12 },
+  searchRow: { marginBottom:12 },
   searchBox: {
-    flex:1, flexDirection:"row", alignItems:"center", gap:8,
-    backgroundColor:COLORS.cardBg, borderRadius:14,
-    paddingHorizontal:12, paddingVertical:10,
+    flexDirection:"row", alignItems:"center", gap:8,
+    backgroundColor:COLORS.cardBg, borderRadius:12,
+    paddingHorizontal:10, paddingVertical:6,
     borderWidth:1, borderColor:COLORS.border,
   },
-  searchInput: { flex:1, fontSize:13, color:COLORS.textPrimary },
+  searchInput: { flex:1, fontSize:12, color:COLORS.textPrimary, paddingVertical:6 },
   filterPillBtn: {
     flexDirection:"row", alignItems:"center", gap:5,
     paddingHorizontal:12, paddingVertical:10, borderRadius:14,
@@ -815,14 +891,6 @@ const repSt = StyleSheet.create({
   kpiItem: { flex:1, alignItems:"center" },
   kpiVal: { fontSize:18, fontWeight:"800", letterSpacing:-0.5 },
   kpiLbl: { fontSize:10, fontWeight:"600", color:COLORS.textMuted, marginTop:2, textTransform:"uppercase" },
-
-  // Flag alert
-  flagAlert: {
-    flexDirection:"row", alignItems:"center", gap:8,
-    backgroundColor:COLORS.dangerLight, borderRadius:12,
-    padding:12, marginBottom:12,
-  },
-  flagAlertText: { fontSize:13, color:COLORS.danger, fontWeight:"600", flex:1 },
 
   // Section row
   sectionRow: { flexDirection:"row", alignItems:"center", justifyContent:"space-between", marginBottom:10 },
@@ -898,34 +966,6 @@ const repSt = StyleSheet.create({
   },
   monthSelectorLabel: { fontSize:10, fontWeight:"700", color:COLORS.textMuted, textTransform:"uppercase" },
   monthSelectorValue: { fontSize:16, fontWeight:"800", color:COLORS.textPrimary },
-  exportSmallBtn: {
-    flexDirection:"row", alignItems:"center", gap:4,
-    backgroundColor:COLORS.primary, borderRadius:10, paddingHorizontal:10, paddingVertical:5,
-  },
-  exportSmallText: { fontSize:11, fontWeight:"700", color:COLORS.white },
-
-  // Summary tab
-  summaryHero: {
-    backgroundColor:COLORS.primaryMuted, borderRadius:20, padding:20,
-    alignItems:"center", marginBottom:14,
-  },
-  summaryHeroLabel: { fontSize:12, color:COLORS.primary, fontWeight:"700", textTransform:"uppercase" },
-  summaryHeroValue: { fontSize:26, fontWeight:"800", color:COLORS.primary, marginTop:4 },
-  summarySection: { fontSize:14, fontWeight:"800", color:COLORS.textPrimary, marginBottom:10, marginTop:6 },
-  topCard: {
-    flexDirection:"row", alignItems:"center", gap:10,
-    backgroundColor:COLORS.cardBg, borderRadius:16, padding:14,
-    borderLeftWidth:4, marginBottom:8,
-  },
-  topRank: { fontSize:22 },
-  topSales: { fontSize:18, fontWeight:"800" },
-  topSalesLbl: { fontSize:10, color:COLORS.textMuted, fontWeight:"600" },
-  fullExportBtn: {
-    flexDirection:"row", alignItems:"center", justifyContent:"center",
-    gap:8, backgroundColor:COLORS.primary, borderRadius:14,
-    paddingVertical:15, marginTop:12,
-  },
-  fullExportBtnText: { fontSize:14, fontWeight:"800", color:COLORS.white },
 
   // Empty
   emptyState: { alignItems:"center", paddingVertical:30 },
@@ -935,7 +975,7 @@ const repSt = StyleSheet.create({
   modalOverlay: { flex:1, backgroundColor:COLORS.overlayBg, justifyContent:"flex-end" },
   pickerSheet: {
     backgroundColor:COLORS.cardBg, borderTopLeftRadius:28, borderTopRightRadius:28,
-    padding:24, paddingBottom: Platform.OS==="ios" ? 40 : 28,
+    padding:24, paddingBottom: Platform.OS==="ios" ? 58 : 58,
   },
   modalHandle: {
     width:44, height:5, borderRadius:3, backgroundColor:COLORS.border,
@@ -986,12 +1026,6 @@ const repSt = StyleSheet.create({
   detailInfoVal: { fontSize:13, color:COLORS.textPrimary, fontWeight:"700", flex:1, textAlign:"right" },
   notesCard: { backgroundColor:COLORS.background, borderRadius:14, padding:14, marginBottom:12 },
   notesText: { fontSize:13, color:COLORS.textSecondary, lineHeight:20 },
-  exportRow: { alignItems:"center", marginTop:8 },
-  exportBtn: {
-    flexDirection:"row", alignItems:"center", gap:6,
-    backgroundColor:COLORS.primary, borderRadius:12, paddingHorizontal:24, paddingVertical:12,
-  },
-  exportBtnText: { fontSize:13, fontWeight:"800", color:COLORS.white },
 });
 
 export default ReportsScreen;

@@ -256,7 +256,7 @@ const AdjustModal: React.FC<{
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={st.modalOverlay}>
         <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
-        <View style={[st.payslipSheet, { paddingBottom: Platform.OS === "ios" ? 40 : 28 }]}>
+        <View style={[st.payslipSheet, { paddingBottom: Platform.OS === "ios" ? 48 : 38 }]}>
           <View style={st.modalHandle} />
           <View style={st.adjustTitleRow}>
             <Text style={st.modalTitle}>Adjust Payroll</Text>
@@ -484,11 +484,7 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
           <Menu size={22} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Payroll</Text>
-        <TouchableOpacity style={styles.addBtn}
-          onPress={() => Alert.alert("Generate PDF","Full payroll PDF for " + month + " " + year + " will be downloaded.")}
-          activeOpacity={0.8}>
-          <Download size={19} color={COLORS.white} />
-        </TouchableOpacity>
+       
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}
@@ -766,7 +762,7 @@ const st = StyleSheet.create({
   payslipSheet: {
     backgroundColor:COLORS.cardBg,
     borderTopLeftRadius:28, borderTopRightRadius:28,
-    padding:24, paddingBottom: Platform.OS==="ios" ? 40 : 28,
+    padding:24, paddingBottom: Platform.OS==="ios" ? 48 : 38,
     maxHeight:"90%",
   },
   modalHandle: {
@@ -840,7 +836,7 @@ const st = StyleSheet.create({
   pickerSheet: {
     backgroundColor:COLORS.cardBg,
     borderTopLeftRadius:28, borderTopRightRadius:28,
-    padding:24, paddingBottom: Platform.OS==="ios" ? 40 : 28,
+    padding:24, paddingBottom: Platform.OS==="ios" ? 58 : 50,
   },
   yearRow: { flexDirection:"row", gap:8, marginBottom:16 },
   yearBtn: {

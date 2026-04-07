@@ -7,6 +7,7 @@
     "icon": "./assets/images/splash.png",
     "scheme": "nyamasiems",
     "userInterfaceStyle": "light",
+     "jsEngine": "hermes",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash.png",
@@ -21,18 +22,22 @@
         "foregroundImage": "./assets/images/splash.png",
         "backgroundColor": "#ffffff"
       },
+       "config": {
+        "googleMaps": {
+           "apiKey": "AIzaSyDXt21WgF8JjTYCg33rTXQVUDC_CHdJv3w"
+        }
+      },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "pan"
+      "softwareKeyboardLayoutMode": "pan",
+      "package": "com.bonga.nyamasiems"
     },
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
- 
-  
-       "plugins": [
+    "plugins": [
       [
         "expo-splash-screen",
         {
@@ -43,10 +48,13 @@
         }
       ]
     ],
-
- 
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b13b03e4-8c50-4543-a814-f93a2c3d73ca"
+      }
     }
   }
 }

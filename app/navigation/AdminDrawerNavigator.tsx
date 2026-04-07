@@ -106,9 +106,9 @@ function CustomDrawerContent(props: any) {
           );
         })}
 
-        <View style={styles.drawerDivider} />
-        
-        <Text style={styles.drawerSection}>DISPATCH</Text>
+        {/* <View style={styles.drawerDivider} />
+         */}
+        {/* <Text style={styles.drawerSection}>DISPATCH</Text>
         {dispatchItems.map((item) => {
           const isActive = activeRouteName === item.key;
           const IconComponent = item.icon;
@@ -139,7 +139,7 @@ function CustomDrawerContent(props: any) {
               {isActive && <View style={styles.drawerActiveDot} />}
             </TouchableOpacity>
           );
-        })}
+        })} */}
 
         <View style={styles.drawerDivider} />
         

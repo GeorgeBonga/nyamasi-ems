@@ -21,6 +21,7 @@ import {
   EmpStatus,
   CreateEmployeeInput,
 } from "../../data/dbService";
+import LocationPickerModal from "../../../components/LocationPickerModal";
 
 // ─── Constants (unchanged) ────────────────────────────────────────────────────
 const COLORS = {
@@ -37,7 +38,8 @@ const COLORS = {
   overlayBg: "rgba(13,33,55,0.6)",
 };
 
-const ROLES: EmpRole[] = ["Field Rep", "Senior Rep", "Team Lead", "Supervisor"];
+
+const ROLES: EmpRole[] = ["sales_rep", "supervisor", "manager"];
 
 // ─── Star Rating ──────────────────────────────────────────────────────────────
 const StarRating: React.FC<{ rating: number; size?: number }> = ({ rating, size = 12 }) => (
@@ -158,6 +160,9 @@ interface FormState {
   lastName: string;
   role: EmpRole;
   assignedArea: string;
+  assignedLocationName: string;
+  assignedLocationLat: number;
+  assignedLocationLng: number;
   phone: string;
   email: string;
   salary: string;
@@ -167,9 +172,14 @@ interface FormState {
 }
 
 
+
 const EMPTY_FORM: FormState = {
-  firstName: "", lastName: "", role: "Field Rep",
-  assignedArea: "", phone: "", email: "",
+  firstName: "", lastName: "", role: "sales_rep",
+  assignedArea: "",
+  assignedLocationName: "",
+  assignedLocationLat: 0,
+  assignedLocationLng: 0,
+  phone: "", email: "",
   salary: "", dailyTarget: "", monthlyTarget: "", password: "",
 };
 
@@ -182,176 +192,222 @@ const AddEditModal: React.FC<{
 }> = ({ visible, emp, onClose, onSave, saving }) => {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [showRoles, setShowRoles] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
 
-  useEffect(() => {
+
+ useEffect(() => {
     if (emp) {
       setForm({
         firstName: emp.firstName,
         lastName: emp.lastName,
         role: emp.role,
         assignedArea: emp.assignedArea,
+       assignedLocationName: emp.assignedLocation?.name || "",
+assignedLocationLat: emp.assignedLocation?.latitude || 0,
+assignedLocationLng: emp.assignedLocation?.longitude || 0,
         phone: emp.phone,
         email: emp.email,
         salary: String(emp.salary.base),
         dailyTarget: String(emp.targets.daily),
         monthlyTarget: String(emp.targets.monthly),
-        password: "",                         // never pre-fill passwords
+        password: "",
       });
     } else {
       setForm(EMPTY_FORM);
     }
   }, [emp, visible]);
 
-
-   const updateField = useCallback((key: keyof FormState, value: string) => {
+  const updateField = useCallback((key: keyof FormState, value: string | number) => {
     setForm(prev => ({ ...prev, [key]: value }));
   }, []);
 
+  const handleLocationSelect = (location: any) => {
+    setForm(prev => ({
+      ...prev,
+      assignedArea: location.name,
+      assignedLocationName: location.name,
+      assignedLocationLat: location.latitude,
+      assignedLocationLng: location.longitude,
+    }));
+  };
+
+
   
  
-
  const Field: React.FC<{
-    label: string; 
-    value: string; 
+    label: string;
+    value: string;
     fieldKey: keyof FormState;
-    placeholder: string; 
-    keyboardType?: any; 
+    placeholder: string;
+    keyboardType?: any;
     secure?: boolean;
-  }> = useCallback(({ label, value, fieldKey, placeholder, keyboardType, secure }) => (
+    editable?: boolean;
+  }> = useCallback(({ label, value, fieldKey, placeholder, keyboardType, secure, editable = true }) => (
     <View style={empSt.fieldGroup}>
       <Text style={empSt.fieldLabel}>{label}</Text>
       <TextInput
-        style={empSt.fieldInput} 
-        value={value} 
+        style={[empSt.fieldInput, !editable && { backgroundColor: COLORS.background, color: COLORS.textMuted }]}
+        value={value}
         onChangeText={(text) => updateField(fieldKey, text)}
-        placeholder={placeholder} 
+        placeholder={placeholder}
         placeholderTextColor={COLORS.textMuted}
-        keyboardType={keyboardType ?? "default"} 
+        keyboardType={keyboardType ?? "default"}
         secureTextEntry={!!secure}
+        editable={editable}
       />
     </View>
   ), [updateField]);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={empSt.modalOverlay}>
-        <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
-        <View style={[empSt.detailSheet, { paddingBottom: Platform.OS === "ios" ? 40 : 28 }]}>
-          <View style={empSt.modalHandle} />
-          <View style={empSt.modalTitleRow}>
-            <Text style={empSt.modalTitle}>{emp ? "Edit Employee" : "Add Employee"}</Text>
-            <TouchableOpacity onPress={onClose}><X size={20} color={COLORS.textMuted} /></TouchableOpacity>
-          </View>
-
-          <ScrollView 
-            showsVerticalScrollIndicator={false} 
-            keyboardShouldPersistTaps="handled"
-            removeClippedSubviews={false} // Important for TextInput performance
-          >
-            <Field 
-              label="First Name *"    
-              value={form.firstName}    
-              fieldKey="firstName"
-              placeholder="e.g. Jane" 
-            />
-            <Field 
-              label="Last Name *"     
-              value={form.lastName}     
-              fieldKey="lastName"
-              placeholder="e.g. Mwangi" 
-            />
-            <Field 
-              label="Phone *"         
-              value={form.phone}        
-              fieldKey="phone"
-              placeholder="+254 7XX XXX XXX" 
-              keyboardType="phone-pad" 
-            />
-            <Field 
-              label="Email"           
-              value={form.email}        
-              fieldKey="email"
-              placeholder="jane@company.co.ke" 
-              keyboardType="email-address" 
-            />
-            <Field 
-              label="Assigned Area *" 
-              value={form.assignedArea} 
-              fieldKey="assignedArea"
-              placeholder="e.g. Westlands" 
-            />
-            <Field 
-              label="Base Salary (KES) *" 
-              value={form.salary}  
-              fieldKey="salary"
-              placeholder="e.g. 28000" 
-              keyboardType="numeric" 
-            />
-            <Field 
-              label="Daily Target *"  
-              value={form.dailyTarget}  
-              fieldKey="dailyTarget"
-              placeholder="units/day" 
-              keyboardType="numeric" 
-            />
-            <Field 
-              label="Monthly Target *" 
-              value={form.monthlyTarget} 
-              fieldKey="monthlyTarget"
-              placeholder="units/month" 
-              keyboardType="numeric" 
-            />
-            {!emp && (
-              <Field 
-                label="Initial Password *" 
-                value={form.password} 
-                fieldKey="password"
-                placeholder="Min 6 characters" 
-                secure 
-              />
-            )}
-
-            {/* Role picker */}
-            <View style={empSt.fieldGroup}>
-              <Text style={empSt.fieldLabel}>Role *</Text>
-              <TouchableOpacity
-                style={[empSt.fieldInput, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
-                onPress={() => setShowRoles(!showRoles)}
-              >
-                <Text style={{ color: COLORS.textPrimary, fontSize: 14 }}>{form.role}</Text>
-                <ChevronDown size={16} color={COLORS.textMuted} />
-              </TouchableOpacity>
-              {showRoles && (
-                <View style={empSt.roleDropdown}>
-                  {ROLES.map((r) => (
-                    <TouchableOpacity key={r} style={empSt.roleOption}
-                      onPress={() => { setForm((f) => ({ ...f, role: r })); setShowRoles(false); }}
-                    >
-                      <Text style={[empSt.roleOptionText, form.role === r && { color: COLORS.primary, fontWeight: "800" }]}>{r}</Text>
-                      {form.role === r && <Check size={14} color={COLORS.primary} />}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+    <>
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={empSt.modalOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
+          <View style={[empSt.detailSheet, { paddingBottom: Platform.OS === "ios" ? 48 : 38 }]}>
+            <View style={empSt.modalHandle} />
+            <View style={empSt.modalTitleRow}>
+              <Text style={empSt.modalTitle}>{emp ? "Edit Employee" : "Add Employee"}</Text>
+              <TouchableOpacity onPress={onClose}><X size={20} color={COLORS.textMuted} /></TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[empSt.saveBtn, saving && { opacity: 0.7 }]}
-              onPress={() => onSave(form)}
-              disabled={saving}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              removeClippedSubviews={false}
             >
-              {saving
-                ? <ActivityIndicator color={COLORS.white} size="small" />
-                : <Text style={empSt.saveBtnText}>{emp ? "Save Changes" : "Create Employee"}</Text>
-              }
-            </TouchableOpacity>
-            <View style={{ height: 16 }} />
-          </ScrollView>
+              <Field
+                label="First Name *"
+                value={form.firstName}
+                fieldKey="firstName"
+                placeholder="e.g. Jane"
+              />
+              <Field
+                label="Last Name *"
+                value={form.lastName}
+                fieldKey="lastName"
+                placeholder="e.g. Mwangi"
+              />
+              <Field
+                label="Phone *"
+                value={form.phone}
+                fieldKey="phone"
+                placeholder="+254 7XX XXX XXX"
+                keyboardType="phone-pad"
+              />
+              <Field
+                label="Email"
+                value={form.email}
+                fieldKey="email"
+                placeholder="jane@company.co.ke"
+                keyboardType="email-address"
+              />
+
+              {/* Location Picker Button */}
+              <View style={empSt.fieldGroup}>
+                <Text style={empSt.fieldLabel}>Assigned Area *</Text>
+                <TouchableOpacity
+                  style={empSt.locationButton}
+                  onPress={() => setShowLocationPicker(true)}
+                >
+                  <MapPin size={18} color={COLORS.primary} />
+                  <Text style={empSt.locationButtonText}>
+                    {form.assignedArea || "Select location from map"}
+                  </Text>
+                </TouchableOpacity>
+                {form.assignedArea && (
+                  <Text style={empSt.locationHint}>
+                    Lat: {form.assignedLocationLat.toFixed(6)}, Lng: {form.assignedLocationLng.toFixed(6)}
+                  </Text>
+                )}
+              </View>
+
+              <Field
+                label="Base Salary (KES) *"
+                value={form.salary}
+                fieldKey="salary"
+                placeholder="e.g. 28000"
+                keyboardType="numeric"
+              />
+              <Field
+                label="Daily Target *"
+                value={form.dailyTarget}
+                fieldKey="dailyTarget"
+                placeholder="units/day"
+                keyboardType="numeric"
+              />
+              <Field
+                label="Monthly Target *"
+                value={form.monthlyTarget}
+                fieldKey="monthlyTarget"
+                placeholder="units/month"
+                keyboardType="numeric"
+              />
+              {!emp && (
+                <Field
+                  label="Initial Password *"
+                  value={form.password}
+                  fieldKey="password"
+                  placeholder="Min 6 characters"
+                  secure
+                />
+              )}
+
+              {/* Role picker */}
+              <View style={empSt.fieldGroup}>
+                <Text style={empSt.fieldLabel}>Role *</Text>
+                <TouchableOpacity
+                  style={[empSt.fieldInput, { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }]}
+                  onPress={() => setShowRoles(!showRoles)}
+                >
+                  <Text style={{ color: COLORS.textPrimary, fontSize: 14 }}>{form.role}</Text>
+                  <ChevronDown size={16} color={COLORS.textMuted} />
+                </TouchableOpacity>
+                {showRoles && (
+                  <View style={empSt.roleDropdown}>
+                    {ROLES.map((r) => (
+                      <TouchableOpacity key={r} style={empSt.roleOption}
+                        onPress={() => { setForm((f) => ({ ...f, role: r })); setShowRoles(false); }}
+                      >
+                        <Text style={[empSt.roleOptionText, form.role === r && { color: COLORS.primary, fontWeight: "800" }]}>{r}</Text>
+                        {form.role === r && <Check size={14} color={COLORS.primary} />}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[empSt.saveBtn, saving && { opacity: 0.7 }]}
+                onPress={() => onSave(form)}
+                disabled={saving}
+              >
+                {saving
+                  ? <ActivityIndicator color={COLORS.white} size="small" />
+                  : <Text style={empSt.saveBtnText}>{emp ? "Save Changes" : "Create Employee"}</Text>
+                }
+              </TouchableOpacity>
+              <View style={{ height: 16 }} />
+            </ScrollView>
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {/* Location Picker Modal */}
+      <LocationPickerModal
+        visible={showLocationPicker}
+        onClose={() => setShowLocationPicker(false)}
+        onSelect={handleLocationSelect}
+        initialLocation={form.assignedLocationLat ? {
+          name: form.assignedArea,
+          latitude: form.assignedLocationLat,
+          longitude: form.assignedLocationLng,
+          address: form.assignedArea,
+        } : null}
+      />
+    </>
   );
 };
+
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const EmployeesScreen: React.FC = () => {
@@ -419,17 +475,22 @@ const EmployeesScreen: React.FC = () => {
           return;
         }
         const input: CreateEmployeeInput = {
-          firstName:    form.firstName,
-          lastName:     form.lastName,
-          role:         form.role,
-          phone:        form.phone,
-          email:        form.email,
+          firstName: form.firstName,
+          lastName: form.lastName,
+          role: form.role,
+          phone: form.phone,
+          email: form.email,
           assignedArea: form.assignedArea,
-          baseSalary:   Number(form.salary),
-          dailyTarget:  Number(form.dailyTarget),
+          assignedLocationName: form.assignedLocationName,
+          assignedLocationLat: form.assignedLocationLat,
+          assignedLocationLng: form.assignedLocationLng,
+
+          baseSalary: Number(form.salary),
+          dailyTarget: Number(form.dailyTarget),
           monthlyTarget: Number(form.monthlyTarget),
-          password:     form.password,
-          createdBy:    "u001",     // inject from auth context in production
+
+          password: form.password,
+          createdBy: "u001", // inject from auth context in production
         };
         await createEmployee(input);
       }
@@ -629,6 +690,29 @@ const empSt = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 18, paddingVertical: 16,
   },
+  locationButton: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 10,
+  backgroundColor: COLORS.primaryMuted,
+  borderRadius: 12,
+  paddingHorizontal: 14,
+  paddingVertical: 12,
+  borderWidth: 1,
+  borderColor: COLORS.primaryLight,
+},
+locationButtonText: {
+  flex: 1,
+  fontSize: 14,
+  color: COLORS.primary,
+  fontWeight: "600",
+},
+locationHint: {
+  fontSize: 11,
+  color: COLORS.textMuted,
+  marginTop: 6,
+  fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+},
   headerLeft: { flex: 1 },
     menuBtn: {
     width: 46,

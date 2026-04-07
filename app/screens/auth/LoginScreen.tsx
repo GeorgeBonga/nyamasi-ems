@@ -85,10 +85,6 @@ const LoginScreen: React.FC = () => {
           navigation.replace("CheckIn", { employeeId });
           break;
           
-        case "rider":
-          navigation.replace("RiderDeliveryScreen");
-          break;
-          
         default:
           Alert.alert("Error", "Unknown user role. Please contact administrator.");
       }
