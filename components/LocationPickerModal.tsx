@@ -9,7 +9,7 @@ import Geocoder from "react-native-geocoding";
 import { Search, X, MapPin, Check } from "lucide-react-native";
 
 // Initialize Geocoder (get your API key from Google Cloud Console)
-Geocoder.init("AIzaSyDXt21WgF8JjTYCg33rTXQVUDC_CHdJv3w"); // Replace with your API key
+Geocoder.init(""); // Replace with your API key
 
 const COLORS = {
   primary: "#8B0111",
