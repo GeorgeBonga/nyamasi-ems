@@ -233,6 +233,15 @@ const CheckInScreen: React.FC = () => {
 
   const btnDisabled = checkingIn || locLoading || withinRadius === false || withinRadius === null;
 
+  const getGreeting = () => {
+  const hour = new Date().getHours();
+
+  if (hour < 12) return "Morning";
+  if (hour < 17) return "Afternoon";
+  if (hour < 21) return "Evening";
+  return "Night";
+};
+
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
@@ -240,13 +249,8 @@ const CheckInScreen: React.FC = () => {
       <SafeAreaView style={s.safe} edges={["top"]}>
         {/* ── Navbar ── */}
         <View style={s.navbar}>
-          <TouchableOpacity
-            style={s.backBtn}
-            onPress={() => navigation.replace("Login")}
-            activeOpacity={0.7}
-          >
-            <LogOut size={22} color="#fff" strokeWidth={2.5} />
-          </TouchableOpacity>
+             <View style={s.navSpacer} />
+     
 
           <View style={s.navCenter}>
             {loadingEmployee ? (
@@ -259,7 +263,14 @@ const CheckInScreen: React.FC = () => {
             )}
           </View>
 
-          <View style={s.navSpacer} />
+       
+               <TouchableOpacity
+            style={s.backBtn}
+            onPress={() => navigation.replace("Login")}
+            activeOpacity={0.7}
+          >
+            <LogOut size={22} color="#fff" strokeWidth={2.5} />
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
 
@@ -282,10 +293,10 @@ const CheckInScreen: React.FC = () => {
                 <User size={24} color={BRAND} />
               </View>
               <View style={s.welcomeTextContainer}>
-                <Text style={s.welcomeGreeting}>
-                  Good {new Date().getHours() < 12 ? "Morning" : "Afternoon"},
-                </Text>
-                <Text style={s.welcomeName}>{employee.firstName}!</Text>
+               <Text style={s.welcomeGreeting}>
+  Good {getGreeting()},
+</Text>
+                <Text style={s.welcomeName}>{employee.firstName}</Text>
                 <Text style={s.welcomeLocation}>
                   {employee.assignedLocation.name}
                 </Text>

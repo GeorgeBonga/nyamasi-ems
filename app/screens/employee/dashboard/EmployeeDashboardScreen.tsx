@@ -694,7 +694,7 @@ const EmployeeDashboardScreen: React.FC = () => {
         <View style={styles.welcomeCard}>
           <View style={styles.welcomeText}>
             <Text style={styles.welcomeGreet}>{getGreeting()},</Text>
-            <Text style={styles.welcomeName}>{employee?.firstName ?? "there"}! 👋</Text>
+            <Text style={styles.welcomeName}>{employee?.firstName ?? "User"} 👋</Text>
             <Text style={styles.welcomeRole}>
               {employee?.role} · {employee?.assignedArea}
             </Text>
@@ -1012,7 +1012,7 @@ const styles = StyleSheet.create({
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: COLORS.overlayBg },
   modalSheet: {
     backgroundColor: COLORS.cardBg, borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    padding: 24, paddingBottom: Platform.OS === "ios" ? 40 : 28, maxHeight: "92%",
+    padding: 24, paddingBottom: Platform.OS === "ios" ? 58 : 48, maxHeight: "92%",
   },
   modalHandle: {
     width: 44, height: 5, borderRadius: 3,

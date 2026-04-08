@@ -202,6 +202,7 @@ export const createEmployee = async (
     joinDateISO: now.split("T")[0],
     createdAt:   now,
     createdBy:   input.createdBy,
+    
   };
 
   const user: User = {
@@ -220,6 +221,109 @@ export const createEmployee = async (
   return { employee, user };
 };
 
+
+export const activateEmployee = async (id: string): Promise<boolean> => {
+  await delay(200);
+  
+  // Find and update employee
+  const empIdx = db.employees.findIndex((e) => e.id === id);
+  if (empIdx === -1) return false;
+  
+  // Update employee status to active
+  db.employees[empIdx].status = "active";
+  
+  // Find and activate the associated user account
+  const userIdx = db.users.findIndex((u) => u.employeeId === id);
+  if (userIdx !== -1) {
+    db.users[userIdx].active = true;
+  }
+  
+  return true;
+};
+
+/**
+ * Update employee with optional password change
+ * Tracks last password update timestamp
+ */
+export const updateEmployeeWithPassword = async (
+  id: string,
+  updates: Partial<Pick<Employee,
+    "firstName" | "lastName" | "role" | "phone" | "email" |
+    "assignedArea" | "status" | "rating" | "online"
+  > & {
+    baseSalary?: number;
+    dailyTarget?: number;
+    monthlyTarget?: number;
+    password?: string;
+  }>
+): Promise<Employee | null> => {
+  await delay(200);
+  const idx = db.employees.findIndex((e) => e.id === id);
+  if (idx === -1) return null;
+
+  const emp = { ...db.employees[idx] };
+  
+  // Update basic fields
+  if (updates.firstName !== undefined) emp.firstName = updates.firstName;
+  if (updates.lastName !== undefined) emp.lastName = updates.lastName;
+  if (updates.firstName !== undefined || updates.lastName !== undefined) {
+    emp.fullName = `${emp.firstName} ${emp.lastName}`;
+    emp.initials = toInitials(emp.fullName);
+  }
+  if (updates.role !== undefined) emp.role = updates.role;
+  if (updates.phone !== undefined) emp.phone = updates.phone;
+  if (updates.email !== undefined) emp.email = updates.email;
+  if (updates.assignedArea !== undefined) emp.assignedArea = updates.assignedArea;
+  if (updates.status !== undefined) emp.status = updates.status;
+  if (updates.rating !== undefined) emp.rating = updates.rating;
+  if (updates.online !== undefined) emp.online = updates.online;
+  if (updates.baseSalary !== undefined) emp.salary.base = updates.baseSalary;
+  if (updates.dailyTarget !== undefined) emp.targets.daily = updates.dailyTarget;
+  if (updates.monthlyTarget !== undefined) emp.targets.monthly = updates.monthlyTarget;
+  
+  // Handle password update with timestamp tracking
+  if (updates.password !== undefined && updates.password.length >= 6) {
+    // Add lastPasswordUpdate field to employee (you may need to add this to your Employee interface)
+    (emp as any).lastPasswordUpdate = new Date().toISOString();
+    
+    // Update user password
+    const userIdx = db.users.findIndex((u) => u.employeeId === id);
+    if (userIdx !== -1) {
+      db.users[userIdx].password = updates.password;
+    }
+  }
+
+  db.employees[idx] = emp;
+  return emp;
+};
+
+/**
+ * Check if employee can update password (once every 30 days)
+ */
+export const canUpdatePassword = async (employeeId: string): Promise<{ canUpdate: boolean; daysRemaining: number; lastUpdate: string | null }> => {
+  await delay();
+  
+  const emp = db.employees.find((e) => e.id === employeeId);
+  if (!emp) {
+    return { canUpdate: false, daysRemaining: 0, lastUpdate: null };
+  }
+  
+  // Get last password update from employee (you may need to add this field)
+  const lastPasswordUpdate = (emp as any).lastPasswordUpdate;
+  
+  if (!lastPasswordUpdate) {
+    return { canUpdate: true, daysRemaining: 0, lastUpdate: null };
+  }
+  
+  const lastUpdate = new Date(lastPasswordUpdate);
+  const now = new Date();
+  const daysSinceUpdate = Math.floor((now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24));
+  const canUpdate = daysSinceUpdate >= 30;
+  const daysRemaining = canUpdate ? 0 : 30 - daysSinceUpdate;
+  
+  return { canUpdate, daysRemaining, lastUpdate: lastPasswordUpdate };
+};
+
 export const updateEmployee = async (
   id: string,
   updates: Partial<Pick<Employee,
@@ -229,6 +333,7 @@ export const updateEmployee = async (
     baseSalary?: number;
     dailyTarget?: number;
     monthlyTarget?: number;
+    password?: string;
   }>
 ): Promise<Employee | null> => {
   await delay(200);
@@ -236,22 +341,35 @@ export const updateEmployee = async (
   if (idx === -1) return null;
 
   const emp = { ...db.employees[idx] };
-  if (updates.firstName)   emp.firstName   = updates.firstName;
-  if (updates.lastName)    emp.lastName    = updates.lastName;
-  if (updates.firstName || updates.lastName) {
+  
+  // Update basic fields
+  if (updates.firstName !== undefined) emp.firstName = updates.firstName;
+  if (updates.lastName !== undefined) emp.lastName = updates.lastName;
+  if (updates.firstName !== undefined || updates.lastName !== undefined) {
     emp.fullName = `${emp.firstName} ${emp.lastName}`;
     emp.initials = toInitials(emp.fullName);
   }
-  if (updates.role)         emp.role         = updates.role;
-  if (updates.phone)        emp.phone        = updates.phone;
-  if (updates.email)        emp.email        = updates.email;
-  if (updates.assignedArea) emp.assignedArea = updates.assignedArea;
-  if (updates.status)       emp.status       = updates.status;
+  if (updates.role !== undefined) emp.role = updates.role;
+  if (updates.phone !== undefined) emp.phone = updates.phone;
+  if (updates.email !== undefined) emp.email = updates.email;
+  if (updates.assignedArea !== undefined) emp.assignedArea = updates.assignedArea;
+  if (updates.status !== undefined) emp.status = updates.status;
   if (updates.rating !== undefined) emp.rating = updates.rating;
   if (updates.online !== undefined) emp.online = updates.online;
-  if (updates.baseSalary     !== undefined) emp.salary.base       = updates.baseSalary;
-  if (updates.dailyTarget    !== undefined) emp.targets.daily     = updates.dailyTarget;
-  if (updates.monthlyTarget  !== undefined) emp.targets.monthly   = updates.monthlyTarget;
+  if (updates.baseSalary !== undefined) emp.salary.base = updates.baseSalary;
+  if (updates.dailyTarget !== undefined) emp.targets.daily = updates.dailyTarget;
+  if (updates.monthlyTarget !== undefined) emp.targets.monthly = updates.monthlyTarget;
+  
+  // Handle password update if provided (with tracking)
+  if (updates.password !== undefined && updates.password.length >= 6) {
+    (emp as any).lastPasswordUpdate = new Date().toISOString();
+    
+    // Update user password
+    const userIdx = db.users.findIndex((u) => u.employeeId === id);
+    if (userIdx !== -1) {
+      db.users[userIdx].password = updates.password;
+    }
+  }
 
   db.employees[idx] = emp;
   return emp;

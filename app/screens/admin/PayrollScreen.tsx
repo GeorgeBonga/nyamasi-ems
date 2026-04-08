@@ -1,15 +1,12 @@
 /**
- * PayrollScreen.tsx — REFACTORED
+ * PayrollScreen.tsx — WITH PDF EXPORT
  * ─────────────────────────────────────────────────────────────────────────────
- * Changes from original:
- *  • Removed PAYROLL[] constant — all records from getPayrollByPeriod()
- *  • Period summary (gross, net, paid/pending/draft counts) from getPayrollPeriodSummary()
- *  • calcGross / calcTotalDeductions / calcNet imported from dbService
- *  • markPayrollPaid() writes to the data store
- *  • updatePayrollRecord() saves adjustments (bonus, advance, overtime)
- *  • PayrollRow reads from PayrollRecord — employee name/initials from employee field
- *  • Payslip modal reads from PayrollRecord — all fields correctly mapped
- *  • Loading state and empty state for each period change
+ * Changes from refactored version:
+ *  • PayslipModal: X close button added top-right
+ *  • Individual "Export PDF" generates a real payslip PDF via RNHTMLtoPDF
+ *  • Full Payroll PDF generates a multi-employee payroll report via RNHTMLtoPDF
+ *  • Both PDFs include company logo (base64 or file URI), professional layout
+ *  • No more Alert stubs for PDF actions
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -26,13 +23,18 @@ import {
   Alert,
   TextInput,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  Download, ChevronDown, Check, DollarSign, TrendingUp,
-  Users, AlertCircle, Eye, FileText, CheckCircle,
+  Download, ChevronDown, Check,
+  Eye, FileText, CheckCircle,
   Menu, X, Edit2, Printer,
 } from "lucide-react-native";
+import * as Print from "expo-print";
+import * as FileSystem from "expo-file-system";
+import * as MediaLibrary from "expo-media-library";
+import Logo from "../../../assets/images/icon.png";
 
 import {
   getPayrollByPeriod,
@@ -48,6 +50,32 @@ import {
   Employee,
   PayStatus,
 } from "../../data/dbService";
+
+// ─── Company branding ─────────────────────────────────────────────────────────
+const COMPANY_NAME    = "Nyamasi Roselle";
+const COMPANY_TAGLINE = "Human Resources & Payroll";
+const COMPANY_ADDRESS = "Nairobi, Kenya";
+const COMPANY_EMAIL   = "hr@nyamasiroselle.co.ke";
+const COMPANY_PHONE   = "+254 700 000 000";
+
+/**
+ * Converts the bundled Logo asset to a base64 data-URI at runtime so it can
+ * be embedded directly in the PDF HTML (expo-print runs in a headless WebView
+ * that cannot resolve Metro asset URIs or require() paths).
+ */
+async function getLogoBase64(): Promise<string> {
+  try {
+    const logoUri = Image.resolveAssetSource(Logo).uri;
+    // On Android the URI may already be a file:// path; on iOS it is an asset URL.
+   const logoBase64 = await FileSystem.readAsStringAsync(logoUri, {
+  encoding: 'base64',
+});
+    return `data:image/jpeg;base64,${logoBase64}`;
+  } catch {
+    // Transparent 1×1 fallback so PDF still renders if logo can't load
+    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+  }
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COLORS = {
@@ -84,7 +112,7 @@ type Month = "Jan"|"Feb"|"Mar"|"Apr"|"May"|"Jun"|"Jul"|"Aug"|"Sep"|"Oct"|"Nov"|"
 const MONTHS: Month[] = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const YEARS = ["2026","2025","2024"];
 
-// ─── Tiny Clock icon shim ─────────────────────────────────────────────────────
+// ─── Clock shim ───────────────────────────────────────────────────────────────
 const Clock: React.FC<{ size: number; color: string }> = ({ size, color }) => (
   <View style={{ width:size, height:size, borderRadius:size/2, borderWidth:1.5, borderColor:color, alignItems:"center", justifyContent:"center" }}>
     <View style={{ width:1.5, height:size*0.28, backgroundColor:color, position:"absolute", bottom:"50%", right:"48%" }} />
@@ -92,18 +120,514 @@ const Clock: React.FC<{ size: number; color: string }> = ({ size, color }) => (
   </View>
 );
 
-// ─── Hydrated payroll — PayrollRecord + employee profile joined ───────────────
 interface HydratedPayroll extends PayrollRecord {
   employee: Employee | null;
 }
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
 const statusColor = (s: PayStatus) =>
   s === "paid" ? COLORS.paid : s === "pending" ? COLORS.pending : COLORS.draft;
 const statusBg = (s: PayStatus) =>
   s === "paid" ? COLORS.paidBg : s === "pending" ? COLORS.pendingBg : COLORS.draftBg;
 const statusAvatarBg = (s: PayStatus) =>
   s === "paid" ? COLORS.successLight : s === "pending" ? COLORS.warningLight : COLORS.accentBlueLight;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF GENERATION HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Shared CSS injected into every PDF page */
+const PDF_STYLES = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, Arial, Helvetica, sans-serif; background: #fff; color: #0D2137; font-size: 13px; line-height: 1.5; }
+  .page { padding: 36px 44px 44px; max-width: 794px; margin: auto; }
+
+  /* ── letterhead ── */
+  .letterhead { display: flex; align-items: stretch; margin-bottom: 0; }
+  .letterhead-left { display: flex; align-items: center; gap: 16px; flex: 1; }
+  .logo { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; border: 2px solid #f0e8e9; }
+  .company-block { display: flex; flex-direction: column; justify-content: center; }
+  .company-name { font-size: 24px; font-weight: 900; color: #8B0111; letter-spacing: -0.8px; line-height: 1.1; }
+  .company-sub  { font-size: 10px; font-weight: 600; color: #4A6580; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 3px; }
+  .letterhead-right { text-align: right; font-size: 10px; color: #8FA3B8; line-height: 1.8; display: flex; flex-direction: column; justify-content: center; }
+  .letterhead-right strong { color: #4A6580; font-size: 11px; }
+
+  /* ── divider band ── */
+  .header-band { height: 4px; background: linear-gradient(to right, #8B0111, #C62828, #F57C00); border-radius: 2px; margin: 14px 0 22px; }
+
+  /* ── doc title block ── */
+  .doc-title-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 22px; }
+  .doc-title { font-size: 20px; font-weight: 900; color: #0D2137; letter-spacing: -0.5px; }
+  .doc-meta  { text-align: right; font-size: 10px; color: #8FA3B8; line-height: 1.8; }
+  .doc-meta strong { color: #0D2137; font-size: 11px; }
+
+  /* ── employee hero card ── */
+  .emp-hero { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, #F0F5FB 0%, #E8EFF8 100%); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; border-left: 4px solid #8B0111; }
+  .emp-avatar { width: 52px; height: 52px; border-radius: 26px; background: rgba(139,1,17,0.12); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 900; color: #8B0111; flex-shrink: 0; border: 2px solid rgba(139,1,17,0.2); }
+  .emp-info   { flex: 1; margin-left: 16px; }
+  .emp-name   { font-size: 17px; font-weight: 800; color: #0D2137; }
+  .emp-role   { font-size: 12px; color: #4A6580; margin-top: 2px; font-weight: 500; }
+  .emp-meta   { font-size: 10px; color: #8FA3B8; margin-top: 4px; }
+  .status-chip { padding: 6px 18px; border-radius: 20px; font-size: 10px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; }
+  .status-paid    { background: #E0F2F1; color: #00897B; border: 1px solid #b2dfdb; }
+  .status-pending { background: #FFF3E0; color: #F57C00; border: 1px solid #ffe0b2; }
+  .status-draft   { background: #F5F5F5; color: #8FA3B8; border: 1px solid #e0e0e0; }
+
+  /* ── two-column layout for payslip ── */
+  .two-col { display: flex; gap: 18px; margin-bottom: 18px; }
+  .two-col .col { flex: 1; }
+
+  /* ── section headings ── */
+  .section-title { font-size: 10px; font-weight: 800; color: #8B0111; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1.5px solid rgba(139,1,17,0.15); }
+
+  /* ── table cards ── */
+  .card { border: 1px solid #D6E4F0; border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+  .row  { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid #EEF3F9; }
+  .row:last-child { border-bottom: none; }
+  .row.subtotal { background: #F8FAFC; }
+  .row.total    { background: rgba(139,1,17,0.06); border-top: 1.5px solid rgba(139,1,17,0.15); }
+  .lbl { font-size: 12px; color: #4A6580; }
+  .val { font-size: 12px; font-weight: 700; color: #0D2137; }
+  .val.earn    { color: #00897B; }
+  .val.ded     { color: #C62828; }
+  .val.total   { font-size: 13px; font-weight: 800; color: #0D2137; }
+  .val.total-ded { font-size: 13px; font-weight: 800; color: #C62828; }
+
+  /* ── net pay banner ── */
+  .net-banner { background: linear-gradient(135deg, #8B0111 0%, #6B0009 100%); border-radius: 14px; padding: 22px 28px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; box-shadow: 0 4px 20px rgba(139,1,17,0.25); }
+  .net-label  { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.75); text-transform: uppercase; letter-spacing: 0.5px; }
+  .net-amount { font-size: 32px; font-weight: 900; color: #fff; letter-spacing: -1.5px; }
+  .net-sub    { font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 3px; }
+
+  /* ── notes box ── */
+  .notes-box { background: #FFFBF0; border: 1px solid #FFE082; border-radius: 10px; padding: 12px 16px; font-size: 11px; color: #795548; margin-bottom: 20px; }
+  .notes-box strong { display: block; margin-bottom: 4px; color: #5D4037; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* ── signature block ── */
+  .sig-block { display: flex; gap: 40px; margin-top: 32px; margin-bottom: 8px; }
+  .sig-col   { flex: 1; }
+  .sig-line  { border-top: 1px solid #D6E4F0; padding-top: 8px; font-size: 10px; color: #8FA3B8; }
+  .sig-title { font-weight: 700; color: #4A6580; font-size: 10px; }
+  .sig-date  { margin-top: 3px; }
+
+  /* ── footer ── */
+  .doc-footer { border-top: 1.5px solid #D6E4F0; padding-top: 12px; margin-top: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .footer-left  { font-size: 9px; color: #B0BEC5; line-height: 1.6; }
+  .footer-right { font-size: 9px; color: #B0BEC5; text-align: right; line-height: 1.6; }
+  .footer-badge { display: inline-block; background: rgba(139,1,17,0.08); color: #8B0111; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; }
+
+  /* ── full payroll report ── */
+  .report-band { background: linear-gradient(135deg, #8B0111 0%, #6B0009 100%); padding: 28px 32px; border-radius: 14px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+  .report-band-title { font-size: 22px; font-weight: 900; color: #fff; letter-spacing: -0.5px; }
+  .report-band-sub   { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px; }
+  .summary-grid { display: flex; gap: 10px; margin-bottom: 24px; }
+  .sum-box { flex: 1; border: 1px solid #D6E4F0; border-radius: 10px; padding: 14px 12px; background: #F8FAFC; }
+  .sum-box.accent { background: rgba(139,1,17,0.05); border-color: rgba(139,1,17,0.2); }
+  .sum-box-val { font-size: 18px; font-weight: 900; letter-spacing: -0.5px; }
+  .sum-box-lbl { font-size: 9px; color: #8FA3B8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead tr { background: #8B0111; }
+  thead th { color: #fff; font-weight: 700; padding: 10px 12px; text-align: left; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; }
+  tbody tr { border-bottom: 1px solid #EEF3F9; }
+  tbody tr:nth-child(even) { background: #F8FAFC; }
+  tbody tr:hover { background: #EEF3F9; }
+  tbody td { padding: 10px 12px; color: #0D2137; vertical-align: middle; }
+  tfoot tr { background: rgba(139,1,17,0.07); border-top: 2px solid #8B0111; }
+  tfoot td { padding: 12px; font-weight: 900; color: #0D2137; font-size: 12px; }
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 8px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; }
+  .tag-paid    { background: #E0F2F1; color: #00897B; }
+  .tag-pending { background: #FFF3E0; color: #F57C00; }
+  .tag-draft   { background: #F5F5F5; color: #8FA3B8; }
+  .emp-cell { display: flex; flex-direction: column; }
+  .emp-cell strong { font-size: 12px; font-weight: 700; color: #0D2137; }
+  .emp-cell span   { font-size: 10px; color: #8FA3B8; margin-top: 1px; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  .green { color: #00897B; font-weight: 700; }
+  .red   { color: #C62828; font-weight: 700; }
+  .bold  { font-weight: 800; }
+`;
+
+/** Letterhead used in every PDF — logoSrc is a base64 data-URI */
+function pdfLetterhead(logoSrc: string, title: string, period: string, refNo: string): string {
+  const now = new Date().toLocaleDateString("en-KE", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+  return `
+    <div class="letterhead">
+      <div class="letterhead-left">
+        <img class="logo" src="${logoSrc}" alt="${COMPANY_NAME} logo" />
+        <div class="company-block">
+          <div class="company-name">${COMPANY_NAME}</div>
+          <div class="company-sub">${COMPANY_TAGLINE}</div>
+        </div>
+      </div>
+      <div class="letterhead-right">
+        <strong>${COMPANY_ADDRESS}</strong>
+        ${COMPANY_EMAIL}<br>${COMPANY_PHONE}
+      </div>
+    </div>
+    <div class="header-band"></div>
+    <div class="doc-title-row">
+      <div class="doc-title">${title}</div>
+      <div class="doc-meta">
+        <strong>${period}</strong><br>
+        ${refNo}<br>
+        ${now}
+      </div>
+    </div>
+  `;
+}
+
+function pdfDocFooter(): string {
+  const ts = new Date().toLocaleString("en-KE");
+  return `
+    <div class="doc-footer">
+      <div class="footer-left">
+        <div class="footer-badge">Confidential</div><br>
+        This is a computer-generated document and does not require a physical signature.<br>
+        ${COMPANY_NAME} · ${COMPANY_ADDRESS}
+      </div>
+      <div class="footer-right">
+        Generated: ${ts}<br>
+        ${COMPANY_EMAIL}<br>
+        ${COMPANY_PHONE}
+      </div>
+    </div>
+  `;
+}
+
+/** Generate payslip HTML for a single employee — async to load the logo */
+async function buildPayslipHTML(record: HydratedPayroll): Promise<string> {
+  const gross    = calcGross(record);
+  const totalDed = calcTotalDeductions(record);
+  const net      = calcNet(record);
+  const emp      = record.employee;
+  const logoSrc  = await getLogoBase64();
+  const refNo    = `REF: ${record.employeeId.slice(-6).toUpperCase()}-${record.period.label.replace(/\s/g, "")}`;
+  const statusClass = `status-${record.status}`;
+
+  const allowanceRows = record.allowances.map(a => `
+    <div class="row">
+      <span class="lbl">${a.label} Allowance</span>
+      <span class="val earn">KES ${a.amount.toLocaleString()}</span>
+    </div>`).join("");
+
+  const deductionRows = record.deductions.map(d => `
+    <div class="row">
+      <span class="lbl">${d.label}</span>
+      <span class="val ded">− KES ${d.amount.toLocaleString()}</span>
+    </div>`).join("");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payslip — ${emp?.fullName ?? "Employee"} — ${record.period.label}</title>
+  <style>${PDF_STYLES}</style>
+</head>
+<body>
+<div class="page">
+
+  ${pdfLetterhead(logoSrc, "Employee Payslip", record.period.label, refNo)}
+
+  <!-- Employee hero card -->
+  <div class="emp-hero">
+    <div class="emp-avatar">${emp?.initials ?? "??"}</div>
+    <div class="emp-info">
+      <div class="emp-name">${emp?.fullName ?? "Employee"}</div>
+      <div class="emp-role">${emp?.role ?? "—"}</div>
+      <div class="emp-meta">
+        Pay Period: <strong>${record.period.label}</strong> &nbsp;·&nbsp;
+        Days Worked: <strong>${record.attendance.daysWorked} / ${record.attendance.totalDays}</strong> &nbsp;·&nbsp;
+        Employee ID: <strong>${record.employeeId.slice(-8).toUpperCase()}</strong>
+      </div>
+    </div>
+    <div class="status-chip ${statusClass}">${record.status}</div>
+  </div>
+
+  <!-- Earnings & Deductions side by side -->
+  <div class="two-col">
+    <div class="col">
+      <div class="section-title">Earnings</div>
+      <div class="card">
+        <div class="row">
+          <span class="lbl">Basic Salary</span>
+          <span class="val">KES ${record.baseSalary.toLocaleString()}</span>
+        </div>
+        ${record.bonuses.salesBonus > 0 ? `
+        <div class="row">
+          <span class="lbl">Sales Bonus</span>
+          <span class="val earn">KES ${record.bonuses.salesBonus.toLocaleString()}</span>
+        </div>` : ""}
+        ${record.bonuses.performanceBonus > 0 ? `
+        <div class="row">
+          <span class="lbl">Performance Bonus</span>
+          <span class="val earn">KES ${record.bonuses.performanceBonus.toLocaleString()}</span>
+        </div>` : ""}
+        ${allowanceRows}
+        <div class="row total">
+          <span class="lbl bold">Gross Pay</span>
+          <span class="val total">KES ${gross.toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="section-title">Deductions</div>
+      <div class="card">
+        ${deductionRows || `<div class="row"><span class="lbl">No deductions</span><span class="val">KES 0</span></div>`}
+        <div class="row total">
+          <span class="lbl bold">Total Deductions</span>
+          <span class="val total-ded">KES ${totalDed.toLocaleString()}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Net pay banner -->
+  <div class="net-banner">
+    <div>
+      <div class="net-label">Net Pay</div>
+      <div class="net-sub">${record.period.label} · ${record.attendance.daysWorked} days</div>
+    </div>
+    <div class="net-amount">KES ${net.toLocaleString()}</div>
+  </div>
+
+  ${record.notes ? `
+  <div class="notes-box">
+    <strong>Notes</strong>
+    ${record.notes}
+  </div>` : ""}
+
+  <!-- Signature block -->
+  <div class="sig-block">
+    <div class="sig-col">
+      <div class="sig-line">
+        <div class="sig-title">Prepared by (HR)</div>
+        <div class="sig-date">Date: _______________</div>
+      </div>
+    </div>
+    <div class="sig-col">
+      <div class="sig-line">
+        <div class="sig-title">Authorised by</div>
+        <div class="sig-date">Date: _______________</div>
+      </div>
+    </div>
+    <div class="sig-col">
+      <div class="sig-line">
+        <div class="sig-title">Received by (Employee)</div>
+        <div class="sig-date">Date: _______________</div>
+      </div>
+    </div>
+  </div>
+
+  ${pdfDocFooter()}
+</div>
+</body>
+</html>`;
+}
+
+/** Generate full payroll report HTML — async to load the logo */
+async function buildFullPayrollHTML(records: HydratedPayroll[], period: string): Promise<string> {
+  const logoSrc      = await getLogoBase64();
+  const totalGross   = records.reduce((s, r) => s + calcGross(r), 0);
+  const totalNet     = records.reduce((s, r) => s + calcNet(r), 0);
+  const totalDed     = records.reduce((s, r) => s + calcTotalDeductions(r), 0);
+  const paidCount    = records.filter(r => r.status === "paid").length;
+  const pendingCount = records.filter(r => r.status === "pending").length;
+  const draftCount   = records.filter(r => r.status === "draft").length;
+  const refNo        = `REF: PAYROLL-${period.replace(/\s/g, "")}-${Date.now().toString().slice(-6)}`;
+
+  const rows = records.map((r, i) => `
+    <tr>
+      <td class="text-center" style="color:#8FA3B8;font-size:10px">${i + 1}</td>
+      <td>
+        <div class="emp-cell">
+          <strong>${r.employee?.fullName ?? "—"}</strong>
+          <span>${r.employee?.role ?? "—"}</span>
+        </div>
+      </td>
+      <td class="text-center">${r.attendance.daysWorked}/${r.attendance.totalDays}</td>
+      <td class="text-right">KES ${r.baseSalary.toLocaleString()}</td>
+      <td class="text-right green">KES ${calcGross(r).toLocaleString()}</td>
+      <td class="text-right red">KES ${calcTotalDeductions(r).toLocaleString()}</td>
+      <td class="text-right bold">KES ${calcNet(r).toLocaleString()}</td>
+      <td class="text-center"><span class="tag tag-${r.status}">${r.status}</span></td>
+    </tr>`).join("");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payroll Report — ${period}</title>
+  <style>${PDF_STYLES}</style>
+</head>
+<body>
+<div class="page">
+
+  ${pdfLetterhead(logoSrc, "Payroll Report", period, refNo)}
+
+  <!-- Colour summary band -->
+  <div class="report-band">
+    <div>
+      <div class="report-band-title">KES ${totalNet.toLocaleString()}</div>
+      <div class="report-band-sub">Total Net Payroll · ${period} · ${records.length} Employees</div>
+    </div>
+    <img src="${logoSrc}" style="width:48px;height:48px;border-radius:8px;opacity:0.6" />
+  </div>
+
+  <!-- Summary boxes -->
+  <div class="summary-grid">
+    <div class="sum-box accent">
+      <div class="sum-box-val" style="color:#8B0111">KES ${totalNet.toLocaleString()}</div>
+      <div class="sum-box-lbl">Net Payroll</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-box-val" style="color:#0D2137">KES ${totalGross.toLocaleString()}</div>
+      <div class="sum-box-lbl">Gross Payroll</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-box-val" style="color:#C62828">KES ${totalDed.toLocaleString()}</div>
+      <div class="sum-box-lbl">Total Deductions</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-box-val" style="color:#00897B">${paidCount}</div>
+      <div class="sum-box-lbl">Paid</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-box-val" style="color:#F57C00">${pendingCount}</div>
+      <div class="sum-box-lbl">Pending</div>
+    </div>
+    <div class="sum-box">
+      <div class="sum-box-val" style="color:#8FA3B8">${draftCount}</div>
+      <div class="sum-box-lbl">Draft</div>
+    </div>
+  </div>
+
+  <div class="section-title" style="margin-bottom:12px">Employee Breakdown</div>
+  <table>
+    <thead>
+      <tr>
+        <th class="text-center">#</th>
+        <th>Employee</th>
+        <th class="text-center">Days</th>
+        <th class="text-right">Basic (KES)</th>
+        <th class="text-right">Gross (KES)</th>
+        <th class="text-right">Deductions (KES)</th>
+        <th class="text-right">Net Pay (KES)</th>
+        <th class="text-center">Status</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4">TOTALS — ${records.length} employees</td>
+        <td class="text-right green">KES ${totalGross.toLocaleString()}</td>
+        <td class="text-right red">KES ${totalDed.toLocaleString()}</td>
+        <td class="text-right bold">KES ${totalNet.toLocaleString()}</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <!-- Signature / approval block -->
+  <div class="sig-block">
+    <div class="sig-col">
+      <div class="sig-line">
+        <div class="sig-title">Prepared by (HR Manager)</div>
+        <div class="sig-date">Name: _______________</div>
+        <div class="sig-date">Date: _______________</div>
+      </div>
+    </div>
+    <div class="sig-col">
+      <div class="sig-line">
+        <div class="sig-title">Finance Approval</div>
+        <div class="sig-date">Name: _______________</div>
+        <div class="sig-date">Date: _______________</div>
+      </div>
+    </div>
+    <div class="sig-col">
+      <div class="sig-line">
+        <div class="sig-title">Authorised by (Director)</div>
+        <div class="sig-date">Name: _______________</div>
+        <div class="sig-date">Date: _______________</div>
+      </div>
+    </div>
+  </div>
+
+  ${pdfDocFooter()}
+</div>
+</body>
+</html>`;
+}
+
+/**
+ * Renders HTML → PDF via expo-print, then saves it permanently to the device.
+ *
+ * iOS  → saved to the app's Documents directory (visible in Files app under
+ *         "On My iPhone / <AppName>") via FileSystem.
+ * Android → saved to the public Downloads folder via MediaLibrary after
+ *            requesting WRITE_EXTERNAL_STORAGE / MEDIA permission.
+ *
+ * A success alert tells the user exactly where the file landed.
+ */
+async function exportPDF(html: string, fileName: string): Promise<void> {
+  try {
+    // 1. Render HTML → temp PDF
+    const { uri: tmpUri } = await Print.printToFileAsync({ html, base64: false });
+
+    const safeFileName = `${fileName.replace(/[^a-zA-Z0-9_\-]/g, "_")}.pdf`;
+
+    if (Platform.OS === "ios") {
+      // ── iOS: copy into the app Documents folder (Files app accessible) ──
+      const destUri = `${(FileSystem as any).documentDirectory}${safeFileName}`;
+      await FileSystem.copyAsync({ from: tmpUri, to: destUri });
+
+      Alert.alert(
+        "✓ PDF Saved",
+        `"${safeFileName}" has been saved to your Files app under On My iPhone → ${COMPANY_NAME}.`,
+        [{ text: "OK" }]
+      );
+    } else {
+      // ── Android: save to public Downloads via MediaLibrary ──
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Please grant storage permission to save PDFs to your Downloads folder.",
+          [{ text: "OK" }]
+        );
+        return;
+      }
+
+      // Create the asset in MediaLibrary (lands in Downloads)
+      const asset = await MediaLibrary.createAssetAsync(tmpUri);
+      // Try to put it in a named album for cleaner organisation
+      let album = await MediaLibrary.getAlbumAsync(COMPANY_NAME);
+      if (album) {
+        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+      } else {
+        await MediaLibrary.createAlbumAsync(COMPANY_NAME, asset, false);
+      }
+
+      Alert.alert(
+        "✓ PDF Downloaded",
+        `"${safeFileName}" has been saved to your Downloads / ${COMPANY_NAME} folder.`,
+        [{ text: "OK" }]
+      );
+    }
+
+    // Clean up the temp file expo-print left behind
+    await FileSystem.deleteAsync(tmpUri, { idempotent: true });
+
+  } catch (err: any) {
+    console.error("[PayrollScreen] exportPDF error:", err);
+    Alert.alert(
+      "Export Failed",
+      err?.message ?? "Could not save the PDF. Please try again."
+    );
+  }
+}
 
 // ─── Payslip Detail Modal ─────────────────────────────────────────────────────
 const PayslipModal: React.FC<{
@@ -112,11 +636,21 @@ const PayslipModal: React.FC<{
   onClose: () => void;
   onMarkPaid: () => void;
 }> = ({ record, visible, onClose, onMarkPaid }) => {
+  const [exporting, setExporting] = useState(false);
   if (!record) return null;
+
   const gross    = calcGross(record);
   const totalDed = calcTotalDeductions(record);
   const net      = calcNet(record);
   const emp      = record.employee;
+
+  const handleExport = async () => {
+    setExporting(true);
+    const fileName = `Payslip_${(emp?.fullName ?? "Employee").replace(/\s+/g, "_")}_${record.period.label.replace(/\s+/g, "")}`;
+    const html = await buildPayslipHTML(record);
+    await exportPDF(html, fileName);
+    setExporting(false);
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -124,6 +658,11 @@ const PayslipModal: React.FC<{
         <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
         <View style={st.payslipSheet}>
           <View style={st.modalHandle} />
+
+          {/* ── X close button ── */}
+          <TouchableOpacity style={st.modalCloseBtn} onPress={onClose} activeOpacity={0.75} hitSlop={{ top:8, left:8, bottom:8, right:8 }}>
+            <X size={18} color={COLORS.textSecondary} />
+          </TouchableOpacity>
 
           {/* Payslip header */}
           <View style={st.payslipHeader}>
@@ -216,10 +755,19 @@ const PayslipModal: React.FC<{
 
             {/* Actions */}
             <View style={st.slipActions}>
-              <TouchableOpacity style={st.downloadBtn} activeOpacity={0.85}
-                onPress={() => Alert.alert("PDF Export","Payslip PDF generated and ready to share.")}>
-                <Download size={15} color={COLORS.white} />
-                <Text style={st.downloadBtnText}>Export PDF</Text>
+              <TouchableOpacity
+                style={[st.downloadBtn, exporting && { opacity: 0.6 }]}
+                activeOpacity={0.85}
+                onPress={handleExport}
+                disabled={exporting}
+              >
+                {exporting
+                  ? <ActivityIndicator size="small" color={COLORS.white} />
+                  : <Download size={15} color={COLORS.white} />
+                }
+                <Text style={st.downloadBtnText}>
+                  {exporting ? "Generating…" : "Export PDF"}
+                </Text>
               </TouchableOpacity>
               {record.status !== "paid" && (
                 <TouchableOpacity style={st.markPaidBtn} onPress={onMarkPaid} activeOpacity={0.85}>
@@ -256,8 +804,14 @@ const AdjustModal: React.FC<{
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={st.modalOverlay}>
         <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
-        <View style={[st.payslipSheet, { paddingBottom: Platform.OS === "ios" ? 48 : 38 }]}>
+        <View style={[st.payslipSheet, { paddingBottom: Platform.OS === "ios" ? 58 : 58 }]}>
           <View style={st.modalHandle} />
+
+          {/* ── X close button ── */}
+          <TouchableOpacity style={st.modalCloseBtn} onPress={onClose} activeOpacity={0.75} hitSlop={{ top:8, left:8, bottom:8, right:8 }}>
+            <X size={18} color={COLORS.textSecondary} />
+          </TouchableOpacity>
+
           <View style={st.adjustTitleRow}>
             <Text style={st.modalTitle}>Adjust Payroll</Text>
             <Text style={st.adjustSub}>{record.employee?.fullName ?? "Employee"}</Text>
@@ -370,17 +924,17 @@ const PayrollRow: React.FC<{
 interface PayrollScreenProps { navigation?: any }
 
 const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
-  const [month,          setMonth]         = useState<Month>("Apr");
-  const [year,           setYear]          = useState("2026");
-  const [records,        setRecords]       = useState<HydratedPayroll[]>([]);
-  const [summary,        setSummary]       = useState<PayrollPeriodSummary | null>(null);
-  const [loading,        setLoading]       = useState(true);
-  const [viewRecord,     setViewRecord]    = useState<HydratedPayroll | null>(null);
-  const [adjustRecord,   setAdjustRecord]  = useState<HydratedPayroll | null>(null);
-  const [showMonthPicker,setShowMonthPicker] = useState(false);
-  const [filterStatus,   setFilterStatus]  = useState<"all" | PayStatus>("all");
+  const [month,            setMonth]           = useState<Month>("Apr");
+  const [year,             setYear]            = useState("2026");
+  const [records,          setRecords]         = useState<HydratedPayroll[]>([]);
+  const [summary,          setSummary]         = useState<PayrollPeriodSummary | null>(null);
+  const [loading,          setLoading]         = useState(true);
+  const [viewRecord,       setViewRecord]      = useState<HydratedPayroll | null>(null);
+  const [adjustRecord,     setAdjustRecord]    = useState<HydratedPayroll | null>(null);
+  const [showMonthPicker,  setShowMonthPicker] = useState(false);
+  const [filterStatus,     setFilterStatus]    = useState<"all" | PayStatus>("all");
+  const [exportingAll,     setExportingAll]    = useState(false);
 
-  // ── Load payroll for period ───────────────────────────────────────────────
   const loadPayroll = useCallback(async (m: string, y: string) => {
     setLoading(true);
     try {
@@ -388,22 +942,17 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
         getPayrollByPeriod(m, y),
         getPayrollPeriodSummary(m, y),
       ]);
-
-      // Hydrate each record with employee profile
       const hydrated: HydratedPayroll[] = await Promise.all(
         rawRecords.map(async (r) => ({
           ...r,
           employee: await getEmployeeById(r.employeeId),
         }))
       );
-
-      // Sort: paid first, then pending, then draft; within status sort by net desc
       hydrated.sort((a, b) => {
         const order: Record<PayStatus, number> = { paid: 0, pending: 1, draft: 2 };
         if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
         return calcNet(b) - calcNet(a);
       });
-
       setRecords(hydrated);
       setSummary(periodSummary);
     } finally {
@@ -413,33 +962,27 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
 
   useEffect(() => { loadPayroll(month, year); }, [month, year, loadPayroll]);
 
-  // ── Mark paid ─────────────────────────────────────────────────────────────
   const handleMarkPaid = async (id: string) => {
     await markPayrollPaid(id);
     await loadPayroll(month, year);
     setViewRecord(null);
   };
 
-  // ── Apply adjustment ──────────────────────────────────────────────────────
   const handleApplyAdjust = async (id: string, adj: AdjustState) => {
     const record = records.find(r => r.id === id);
     if (!record) return;
-
     const perf    = Number(adj.bonus)          || 0;
     const advance = Number(adj.advance)        || 0;
     const overtime= Number(adj.overtime)       || 0;
     const other   = Number(adj.otherAllowance) || 0;
-
     const newDeductions = advance > 0
       ? [...record.deductions.filter(d => d.label !== "Advance"), { label:"Advance", amount: advance }]
       : record.deductions;
-
     const newAllowances = [
       ...record.allowances,
       ...(overtime > 0 ? [{ label:"Overtime", amount: overtime }] : []),
       ...(other    > 0 ? [{ label:"Other",    amount: other    }] : []),
     ];
-
     await updatePayrollRecord(id, {
       performanceBonus: record.bonuses.performanceBonus + perf,
       allowances: newAllowances,
@@ -449,7 +992,6 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
     await loadPayroll(month, year);
   };
 
-  // ── Process all drafts → pending ──────────────────────────────────────────
   const processDrafts = () => {
     Alert.alert("Process Payroll", "Move all draft entries to pending?", [
       { text: "Cancel", style: "cancel" },
@@ -457,40 +999,46 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
         text: "Process",
         onPress: async () => {
           await Promise.all(
-            records
-              .filter(r => r.status === "draft")
-              .map(r => updatePayrollRecord(r.id, {}))
+            records.filter(r => r.status === "draft").map(r => updatePayrollRecord(r.id, {}))
           );
-          // Reload — in production this would batch-update status
           await loadPayroll(month, year);
         },
       },
     ]);
   };
 
-  // ── Filtered list ─────────────────────────────────────────────────────────
+  const handleExportFullPDF = async () => {
+    if (records.length === 0) {
+      Alert.alert("No Records", "There are no payroll records to export for this period.");
+      return;
+    }
+    setExportingAll(true);
+    const period = `${month} ${year}`;
+    const fileName = `Nyamasi_Roselle_Payroll_${period.replace(" ", "")}`;
+    const html = await buildFullPayrollHTML(records, period);
+    await exportPDF(html, fileName);
+    setExportingAll(false);
+  };
+
   const filtered = filterStatus === "all"
     ? records
     : records.filter(r => r.status === filterStatus);
 
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primaryDark} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.menuBtn} onPress={() => navigation?.openDrawer()} activeOpacity={0.7}>
           <Menu size={22} color={COLORS.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Payroll</Text>
-       
+        <View style={{ width: 42 }} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>
 
-        {/* Month selector */}
         <TouchableOpacity style={st.monthSelector}
           onPress={() => setShowMonthPicker(true)} activeOpacity={0.85}>
           <View style={st.monthSelectorLeft}>
@@ -509,7 +1057,6 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
           </View>
         ) : (
           <>
-            {/* Summary cards */}
             {summary && (
               <>
                 <View style={st.summaryGrid}>
@@ -539,20 +1086,27 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
               </>
             )}
 
-            {/* Action buttons */}
             <View style={st.actionRow}>
               <TouchableOpacity style={st.processBtn} onPress={processDrafts} activeOpacity={0.85}>
                 <Clock size={14} color={COLORS.white} />
                 <Text style={st.processBtnText}>Process Drafts</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={st.exportAllBtn}
-                onPress={() => Alert.alert("PDF","Full payroll PDF generated.")} activeOpacity={0.85}>
-                <Printer size={14} color={COLORS.accentBlue} />
-                <Text style={st.exportAllBtnText}>Full Payroll PDF</Text>
+              <TouchableOpacity
+                style={[st.exportAllBtn, exportingAll && { opacity: 0.6 }]}
+                onPress={handleExportFullPDF}
+                activeOpacity={0.85}
+                disabled={exportingAll}
+              >
+                {exportingAll
+                  ? <ActivityIndicator size="small" color={COLORS.accentBlue} />
+                  : <Printer size={14} color={COLORS.accentBlue} />
+                }
+                <Text style={st.exportAllBtnText}>
+                  {exportingAll ? "Generating…" : "Full Payroll PDF"}
+                </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Filter tabs */}
             <View style={st.filterTabs}>
               {(["all","paid","pending","draft"] as const).map(s => (
                 <TouchableOpacity key={s}
@@ -566,13 +1120,11 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
               ))}
             </View>
 
-            {/* Section label */}
             <View style={st.sectionRow}>
               <Text style={st.sectionTitle}>{month} {year} Payroll</Text>
               <Text style={st.sectionCount}>{filtered.length} employees</Text>
             </View>
 
-            {/* Payroll list */}
             {filtered.length === 0 ? (
               <View style={st.emptyState}>
                 <Text style={st.emptyText}>No payroll records for this period.</Text>
@@ -626,7 +1178,6 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
         </TouchableOpacity>
       </Modal>
 
-      {/* Payslip Modal */}
       <PayslipModal
         record={viewRecord}
         visible={!!viewRecord}
@@ -634,7 +1185,6 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
         onMarkPaid={() => viewRecord && handleMarkPaid(viewRecord.id)}
       />
 
-      {/* Adjust Modal */}
       <AdjustModal
         record={adjustRecord}
         visible={!!adjustRecord}
@@ -662,11 +1212,6 @@ const styles = StyleSheet.create({
     flex: 1, fontSize: 18, fontWeight: "800", color: COLORS.white,
     textAlign: "center", letterSpacing: 0.3,
   },
-  addBtn: {
-    width: 42, height: 42, borderRadius: 21,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center", justifyContent: "center",
-  },
   scroll: {
     flex: 1, backgroundColor: COLORS.background,
     borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -8,
@@ -676,7 +1221,6 @@ const styles = StyleSheet.create({
 
 // ─── Payroll-specific styles ──────────────────────────────────────────────────
 const st = StyleSheet.create({
-  // Month selector
   monthSelector: {
     flexDirection:"row", alignItems:"center", justifyContent:"space-between",
     backgroundColor:COLORS.cardBg, borderRadius:16, padding:16, marginBottom:16,
@@ -686,7 +1230,6 @@ const st = StyleSheet.create({
   monthSelectorLabel: { fontSize:10, fontWeight:"700", color:COLORS.textMuted, textTransform:"uppercase" },
   monthSelectorValue: { fontSize:16, fontWeight:"800", color:COLORS.textPrimary },
 
-  // Summary
   summaryGrid: { marginBottom:8 },
   summaryCard: { backgroundColor:COLORS.cardBg, borderRadius:16, padding:16, alignItems:"center" },
   summaryCardFull: { borderWidth:1, borderColor:COLORS.border },
@@ -698,7 +1241,6 @@ const st = StyleSheet.create({
   summaryMiniVal: { fontSize:18, fontWeight:"800" },
   summaryMiniLbl: { fontSize:10, fontWeight:"700", marginTop:2, textTransform:"uppercase" },
 
-  // Action row
   actionRow: { flexDirection:"row", gap:10, marginBottom:14 },
   processBtn: {
     flex:1, flexDirection:"row", alignItems:"center", justifyContent:"center", gap:6,
@@ -712,7 +1254,6 @@ const st = StyleSheet.create({
   },
   exportAllBtnText: { fontSize:13, fontWeight:"700", color:COLORS.accentBlue },
 
-  // Filter tabs
   filterTabs: { flexDirection:"row", gap:6, marginBottom:14 },
   filterTab: {
     flex:1, paddingVertical:9, borderRadius:12, alignItems:"center",
@@ -722,12 +1263,10 @@ const st = StyleSheet.create({
   filterTabText: { fontSize:11, fontWeight:"700", color:COLORS.textMuted },
   filterTabTextActive: { color:COLORS.white },
 
-  // Section
   sectionRow: { flexDirection:"row", alignItems:"center", justifyContent:"space-between", marginBottom:10 },
   sectionTitle: { fontSize:14, fontWeight:"800", color:COLORS.textPrimary },
   sectionCount: { fontSize:11, color:COLORS.textMuted, fontWeight:"600" },
 
-  // Payroll list
   payList: { backgroundColor:COLORS.cardBg, borderRadius:20, overflow:"hidden" },
   payRow: {
     flexDirection:"row", alignItems:"center",
@@ -753,25 +1292,42 @@ const st = StyleSheet.create({
   },
   rowDivider: { height:1, backgroundColor:COLORS.border, marginHorizontal:14 },
 
-  // Empty
   emptyState: { alignItems:"center", paddingVertical:40 },
   emptyText: { fontSize:14, color:COLORS.textMuted, fontWeight:"600" },
 
-  // Payslip modal
+  // Modal shared
   modalOverlay: { flex:1, backgroundColor:COLORS.overlayBg, justifyContent:"flex-end" },
   payslipSheet: {
     backgroundColor:COLORS.cardBg,
     borderTopLeftRadius:28, borderTopRightRadius:28,
-    padding:24, paddingBottom: Platform.OS==="ios" ? 48 : 38,
+    padding:24, paddingBottom: Platform.OS==="ios" ? 58 : 58,
     maxHeight:"90%",
   },
   modalHandle: {
     width:44, height:5, borderRadius:3,
-    backgroundColor:COLORS.border, alignSelf:"center", marginBottom:20,
+    backgroundColor:COLORS.border, alignSelf:"center", marginBottom:16,
   },
+
+  // ── X close button — positioned top-right inside the sheet ──
+  modalCloseBtn: {
+    position: "absolute",
+    top: 20,
+    right: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+
   payslipHeader: {
     flexDirection:"row", alignItems:"flex-start",
     justifyContent:"space-between", marginBottom:16,
+    paddingRight: 40, // leave room for the X button
   },
   payslipHeroLeft: { flexDirection:"row", alignItems:"flex-start", gap:12, flex:1 },
   payslipAvatar: {
@@ -783,6 +1339,7 @@ const st = StyleSheet.create({
   payslipName: { fontSize:16, fontWeight:"800", color:COLORS.textPrimary },
   payslipRole: { fontSize:12, color:COLORS.textMuted, fontWeight:"500", marginTop:2 },
   payslipPeriod: { fontSize:11, color:COLORS.textMuted, marginTop:2 },
+
   slipSection: {
     fontSize:12, fontWeight:"700", color:COLORS.textMuted,
     textTransform:"uppercase", letterSpacing:0.5,
@@ -832,7 +1389,7 @@ const st = StyleSheet.create({
     fontSize:14, color:COLORS.textPrimary,
   },
 
-  // Picker
+  // Month picker
   pickerSheet: {
     backgroundColor:COLORS.cardBg,
     borderTopLeftRadius:28, borderTopRightRadius:28,

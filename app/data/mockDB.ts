@@ -102,6 +102,7 @@ export interface Employee {
   joinDateISO: string;
   createdAt: string;
   createdBy: string;
+  lastPasswordUpdate?: string;
 }
 
 export interface Report {
@@ -311,6 +312,7 @@ export const db: MockDB = {
       joinDateISO: "2026-01-15",
       createdAt:   "2026-01-15T08:00:00.000Z",
       createdBy:   "u001",
+       lastPasswordUpdate: "2024-03-01T10:00:00.000Z", 
     },
     {
   id: "e002",
@@ -349,6 +351,7 @@ export const db: MockDB = {
   joinDateISO: "2026-01-15",
   createdAt:   "2026-01-15T08:00:00.000Z",
   createdBy:   "u001",
+   lastPasswordUpdate: "2024-03-01T10:00:00.000Z", // Example date
 }
   ],
 

@@ -8,6 +8,7 @@ import {
   Search, Plus, Edit2, Trash2, X, Check,
   MapPin, Phone, Mail, Briefcase, TrendingUp, Users,
   UserCheck, UserX, Filter, ChevronDown, Star, Eye, Menu,
+  EyeOff, RefreshCw,
 } from "lucide-react-native";
 import { useNavigation } from "@react-navigation/native";
 
@@ -16,6 +17,7 @@ import {
   createEmployee,
   updateEmployee,
   deactivateEmployee,
+  activateEmployee,
   Employee,
   EmpRole,
   EmpStatus,
@@ -37,7 +39,6 @@ const COLORS = {
   danger: "#C62828", dangerLight: "#FFEBEE",
   overlayBg: "rgba(13,33,55,0.6)",
 };
-
 
 const ROLES: EmpRole[] = ["sales_rep", "supervisor", "manager"];
 
@@ -68,7 +69,7 @@ const DetailModal: React.FC<{
   emp: Employee | null;
   visible: boolean;
   onClose: () => void;
-  monthSales: number;    // passed from parent, computed from reports
+  monthSales: number;
 }> = ({ emp, visible, onClose, monthSales }) => {
   if (!emp) return null;
   const achievePct = Math.min(100, Math.round((monthSales / emp.targets.monthly) * 100));
@@ -105,10 +106,10 @@ const DetailModal: React.FC<{
             <Text style={empSt.sectionLabel}>Contact</Text>
             <View style={empSt.infoCard}>
               {[
-                { icon: <MapPin  size={14} color={COLORS.primary} />,    label: emp.assignedArea },
-                { icon: <Phone   size={14} color={COLORS.accentBlue} />, label: emp.phone },
-                { icon: <Mail    size={14} color={COLORS.success} />,    label: emp.email },
-                { icon: <Briefcase size={14} color={COLORS.warning} />,  label: `Joined ${emp.joinDate}` },
+                { icon: <MapPin size={14} color={COLORS.primary} />, label: emp.assignedArea },
+                { icon: <Phone size={14} color={COLORS.accentBlue} />, label: emp.phone },
+                { icon: <Mail size={14} color={COLORS.success} />, label: emp.email },
+                { icon: <Briefcase size={14} color={COLORS.warning} />, label: `Joined ${emp.joinDate}` },
               ].map((row, i) => (
                 <View key={i} style={[empSt.infoRow, i > 0 && empSt.infoRowBorder]}>
                   {row.icon}
@@ -117,36 +118,7 @@ const DetailModal: React.FC<{
               ))}
             </View>
 
-            {/* Target */}
-            <Text style={empSt.sectionLabel}>Monthly Sales Target</Text>
-            <View style={empSt.infoCard}>
-              <View style={empSt.targetRow}>
-                <Text style={empSt.targetLabel}>{monthSales} / {emp.targets.monthly} units</Text>
-                <Text style={[empSt.targetPct, {
-                  color: achievePct >= 100 ? COLORS.success : achievePct >= 70 ? COLORS.warning : COLORS.danger,
-                }]}>
-                  {achievePct}%
-                </Text>
-              </View>
-              <ProgressBar
-                value={monthSales}
-                max={emp.targets.monthly}
-                color={achievePct >= 100 ? COLORS.success : achievePct >= 70 ? COLORS.warning : COLORS.primary}
-              />
-            </View>
-
-            {/* Salary */}
-            <Text style={empSt.sectionLabel}>Compensation</Text>
-            <View style={empSt.infoCard}>
-              <View style={empSt.infoRow}>
-                <Text style={empSt.infoLabel}>Monthly Base Salary</Text>
-                <Text style={[empSt.infoValue, { color: COLORS.success }]}>
-                  KES {emp.salary.base.toLocaleString()}
-                </Text>
-              </View>
-            </View>
-
-            <View style={{ height: 20 }} />
+            <View style={{ height: 70 }} />
           </ScrollView>
         </View>
       </View>
@@ -169,9 +141,8 @@ interface FormState {
   dailyTarget: string;
   monthlyTarget: string;
   password: string;
+  updatePassword: boolean;
 }
-
-
 
 const EMPTY_FORM: FormState = {
   firstName: "", lastName: "", role: "sales_rep",
@@ -181,6 +152,7 @@ const EMPTY_FORM: FormState = {
   assignedLocationLng: 0,
   phone: "", email: "",
   salary: "", dailyTarget: "", monthlyTarget: "", password: "",
+  updatePassword: false,
 };
 
 const AddEditModal: React.FC<{
@@ -193,31 +165,51 @@ const AddEditModal: React.FC<{
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [showRoles, setShowRoles] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [lastPasswordUpdate, setLastPasswordUpdate] = useState<Date | null>(null);
+  const [canUpdatePassword, setCanUpdatePassword] = useState(true);
 
-
- useEffect(() => {
+  useEffect(() => {
     if (emp) {
+      // Check when password was last updated
+      const checkPasswordUpdate = async () => {
+        if (emp.lastPasswordUpdate) {
+          const lastUpdate = new Date(emp.lastPasswordUpdate);
+          const now = new Date();
+          const daysSinceUpdate = Math.floor((now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24));
+          setCanUpdatePassword(daysSinceUpdate >= 30);
+          setLastPasswordUpdate(lastUpdate);
+        } else {
+          setCanUpdatePassword(true);
+          setLastPasswordUpdate(null);
+        }
+      };
+      checkPasswordUpdate();
+
       setForm({
         firstName: emp.firstName,
         lastName: emp.lastName,
         role: emp.role,
         assignedArea: emp.assignedArea,
-       assignedLocationName: emp.assignedLocation?.name || "",
-assignedLocationLat: emp.assignedLocation?.latitude || 0,
-assignedLocationLng: emp.assignedLocation?.longitude || 0,
+        assignedLocationName: emp.assignedLocation?.name || "",
+        assignedLocationLat: emp.assignedLocation?.latitude || 0,
+        assignedLocationLng: emp.assignedLocation?.longitude || 0,
         phone: emp.phone,
         email: emp.email,
         salary: String(emp.salary.base),
         dailyTarget: String(emp.targets.daily),
         monthlyTarget: String(emp.targets.monthly),
         password: "",
+        updatePassword: false,
       });
     } else {
       setForm(EMPTY_FORM);
+      setCanUpdatePassword(true);
+      setLastPasswordUpdate(null);
     }
   }, [emp, visible]);
 
-  const updateField = useCallback((key: keyof FormState, value: string | number) => {
+  const updateField = useCallback((key: keyof FormState, value: string | number | boolean) => {
     setForm(prev => ({ ...prev, [key]: value }));
   }, []);
 
@@ -231,10 +223,7 @@ assignedLocationLng: emp.assignedLocation?.longitude || 0,
     }));
   };
 
-
-  
- 
- const Field: React.FC<{
+  const Field: React.FC<{
     label: string;
     value: string;
     fieldKey: keyof FormState;
@@ -252,18 +241,18 @@ assignedLocationLng: emp.assignedLocation?.longitude || 0,
         placeholder={placeholder}
         placeholderTextColor={COLORS.textMuted}
         keyboardType={keyboardType ?? "default"}
-        secureTextEntry={!!secure}
+        secureTextEntry={secure && !showPassword}
         editable={editable}
       />
     </View>
-  ), [updateField]);
+  ), [updateField, showPassword]);
 
   return (
     <>
       <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
         <View style={empSt.modalOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={onClose} />
-          <View style={[empSt.detailSheet, { paddingBottom: Platform.OS === "ios" ? 48 : 38 }]}>
+          <View style={[empSt.detailSheet, { paddingBottom: Platform.OS === "ios" ? 58 : 58 }]}>
             <View style={empSt.modalHandle} />
             <View style={empSt.modalTitleRow}>
               <Text style={empSt.modalTitle}>{emp ? "Edit Employee" : "Add Employee"}</Text>
@@ -342,14 +331,83 @@ assignedLocationLng: emp.assignedLocation?.longitude || 0,
                 placeholder="units/month"
                 keyboardType="numeric"
               />
+
+              {/* Password Section */}
               {!emp && (
-                <Field
-                  label="Initial Password *"
-                  value={form.password}
-                  fieldKey="password"
-                  placeholder="Min 6 characters"
-                  secure
-                />
+                <View style={empSt.fieldGroup}>
+                  <Text style={empSt.fieldLabel}>Initial Password *</Text>
+                  <View style={empSt.passwordContainer}>
+                    <TextInput
+                      style={[empSt.fieldInput, empSt.passwordInput]}
+                      value={form.password}
+                      onChangeText={(text) => updateField("password", text)}
+                      placeholder="Min 6 characters"
+                      placeholderTextColor={COLORS.textMuted}
+                      secureTextEntry={!showPassword}
+                    />
+                    <TouchableOpacity
+                      style={empSt.eyeIcon}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={20} color={COLORS.textMuted} />
+                      ) : (
+                        <Eye size={20} color={COLORS.textMuted} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {emp && (
+                <View style={empSt.fieldGroup}>
+                  <View style={empSt.updatePasswordRow}>
+                    <TouchableOpacity
+                      style={[empSt.updatePasswordCheckbox, form.updatePassword && empSt.updatePasswordCheckboxActive]}
+                      onPress={() => {
+                        if (canUpdatePassword) {
+                          updateField("updatePassword", !form.updatePassword);
+                        } else {
+                          Alert.alert(
+                            "Password Update Restriction",
+                            `Password can only be updated once every 30 days. Last updated: ${lastPasswordUpdate?.toLocaleDateString()}`,
+                            [{ text: "OK" }]
+                          );
+                        }
+                      }}
+                    >
+                      {form.updatePassword && <Check size={14} color={COLORS.white} />}
+                    </TouchableOpacity>
+                    <Text style={empSt.updatePasswordLabel}>Update Password (once per month)</Text>
+                  </View>
+                  {form.updatePassword && (
+                    <View style={empSt.passwordContainer}>
+                      <TextInput
+                        style={[empSt.fieldInput, empSt.passwordInput]}
+                        value={form.password}
+                        onChangeText={(text) => updateField("password", text)}
+                        placeholder="New password (min 6 characters)"
+                        placeholderTextColor={COLORS.textMuted}
+                        secureTextEntry={!showPassword}
+                      />
+                      <TouchableOpacity
+                        style={empSt.eyeIcon}
+                        onPress={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? (
+                          <EyeOff size={20} color={COLORS.textMuted} />
+                        ) : (
+                          <Eye size={20} color={COLORS.textMuted} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {!canUpdatePassword && (
+                    <Text style={empSt.passwordRestrictionText}>
+                      Password update available after {30 - Math.floor((new Date().getTime() - (lastPasswordUpdate?.getTime() || 0)) / (1000 * 60 * 60 * 24))} days
+                    </Text>
+                  )}
+                </View>
               )}
 
               {/* Role picker */}
@@ -392,7 +450,7 @@ assignedLocationLng: emp.assignedLocation?.longitude || 0,
         </View>
       </Modal>
 
-      {/* Location Picker Modal */}
+      {/* Location Picker Modal - Updated with fixed search */}
       <LocationPickerModal
         visible={showLocationPicker}
         onClose={() => setShowLocationPicker(false)}
@@ -408,19 +466,18 @@ assignedLocationLng: emp.assignedLocation?.longitude || 0,
   );
 };
 
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const EmployeesScreen: React.FC = () => {
   const navigation: any = useNavigation();
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [saving,  setSaving]      = useState(false);
-  const [search, setSearch]       = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
-  const [selectedEmp,  setSelectedEmp]  = useState<Employee | null>(null);
-  const [editEmp,      setEditEmp]      = useState<Employee | null>(null);
-  const [showDetail,   setShowDetail]   = useState(false);
-  const [showAddEdit,  setShowAddEdit]  = useState(false);
+  const [selectedEmp, setSelectedEmp] = useState<Employee | null>(null);
+  const [editEmp, setEditEmp] = useState<Employee | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
+  const [showAddEdit, setShowAddEdit] = useState(false);
 
   // ── Load employees on mount ──────────────────────────────────────────────
   const loadEmployees = useCallback(async () => {
@@ -456,17 +513,28 @@ const EmployeesScreen: React.FC = () => {
     try {
       if (editEmp) {
         // Update existing
-        await updateEmployee(editEmp.id, {
-          firstName:    form.firstName,
-          lastName:     form.lastName,
-          role:         form.role,
-          phone:        form.phone,
-          email:        form.email,
+        const updateData: any = {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          role: form.role,
+          phone: form.phone,
+          email: form.email,
           assignedArea: form.assignedArea,
-          baseSalary:   Number(form.salary),
-          dailyTarget:  Number(form.dailyTarget),
+          baseSalary: Number(form.salary),
+          dailyTarget: Number(form.dailyTarget),
           monthlyTarget: Number(form.monthlyTarget),
-        });
+        };
+        
+        // Only include password if update is requested and valid
+        if (form.updatePassword && form.password && form.password.length >= 6) {
+          updateData.password = form.password;
+        } else if (form.updatePassword && form.password.length < 6) {
+          Alert.alert("Invalid Password", "Password must be at least 6 characters.");
+          setSaving(false);
+          return;
+        }
+        
+        await updateEmployee(editEmp.id, updateData);
       } else {
         // Create new employee + user account
         if (!form.password || form.password.length < 6) {
@@ -484,17 +552,15 @@ const EmployeesScreen: React.FC = () => {
           assignedLocationName: form.assignedLocationName,
           assignedLocationLat: form.assignedLocationLat,
           assignedLocationLng: form.assignedLocationLng,
-
           baseSalary: Number(form.salary),
           dailyTarget: Number(form.dailyTarget),
           monthlyTarget: Number(form.monthlyTarget),
-
           password: form.password,
           createdBy: "u001", // inject from auth context in production
         };
         await createEmployee(input);
       }
-      await loadEmployees();          // refresh list from source of truth
+      await loadEmployees(); // refresh list from source of truth
       setShowAddEdit(false);
       setEditEmp(null);
     } catch (e) {
@@ -504,17 +570,28 @@ const EmployeesScreen: React.FC = () => {
     }
   };
 
-  // ── Delete (deactivate) ──────────────────────────────────────────────────
-  const handleDelete = (emp: Employee) => {
+  // ── Activate/Deactivate employee ─────────────────────────────────────────
+  const handleToggleStatus = async (emp: Employee) => {
+    const isActive = emp.status === "active";
+    const action = isActive ? "Deactivate" : "Activate";
+    const message = isActive
+      ? `${emp.fullName} will lose access but their data will be preserved.`
+      : `${emp.fullName} will regain access to the system.`;
+    
     Alert.alert(
-      "Deactivate Employee",
-      `Deactivate ${emp.fullName}? They will lose access but their data is preserved.`,
+      `${action} Employee`,
+      `${action} ${emp.fullName}? ${message}`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Deactivate", style: "destructive",
+          text: action,
+          style: isActive ? "destructive" : "default",
           onPress: async () => {
-            await deactivateEmployee(emp.id);
+            if (isActive) {
+              await deactivateEmployee(emp.id);
+            } else {
+              await activateEmployee(emp.id);
+            }
             await loadEmployees();
           },
         },
@@ -532,13 +609,13 @@ const EmployeesScreen: React.FC = () => {
 
       {/* Header */}
       <View style={empSt.header}>
-                <TouchableOpacity
-                  style={empSt.menuBtn}
-                  onPress={() => navigation?.openDrawer()}
-                  activeOpacity={0.7}
-                >
-                  <Menu size={22} color={COLORS.white} />
-                </TouchableOpacity>
+        <TouchableOpacity
+          style={empSt.menuBtn}
+          onPress={() => navigation?.openDrawer()}
+          activeOpacity={0.7}
+        >
+          <Menu size={22} color={COLORS.white} />
+        </TouchableOpacity>
         <View style={empSt.headerLeft}>
           <Text style={empSt.headerTitle}>Employees</Text>
           <Text style={empSt.headerSub}>
@@ -624,19 +701,22 @@ const EmployeesScreen: React.FC = () => {
                       <StarRating rating={emp.rating} size={11} />
                     </View>
 
-                    {/* Status badge */}
-                    <View style={[
-                      empSt.statusBadge,
-                      { backgroundColor: emp.status === "active" ? COLORS.onlineLight : COLORS.offlineLight },
-                    ]}>
+                    {/* Status badge - Now clickable for toggling */}
+                    <TouchableOpacity
+                      style={[
+                        empSt.statusBadge,
+                        { backgroundColor: emp.status === "active" ? COLORS.onlineLight : COLORS.offlineLight },
+                      ]}
+                      onPress={() => handleToggleStatus(emp)}
+                    >
                       {emp.status === "active"
                         ? <UserCheck size={11} color={COLORS.online} />
-                        : <UserX size={11} color={COLORS.offline} />
+                        : <RefreshCw size={11} color={COLORS.offline} />
                       }
                       <Text style={[empSt.statusText, { color: emp.status === "active" ? COLORS.online : COLORS.offline }]}>
-                        {emp.status === "active" ? "Active" : "Off"}
+                        {emp.status === "active" ? "Active" : "Inactive"}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
 
                     {/* Actions */}
                     <TouchableOpacity
@@ -647,9 +727,13 @@ const EmployeesScreen: React.FC = () => {
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={empSt.actionBtn}
-                      onPress={() => handleDelete(emp)}
+                      onPress={() => handleToggleStatus(emp)}
                     >
-                      <Trash2 size={14} color={COLORS.danger} />
+                      {emp.status === "active" ? (
+                        <Trash2 size={14} color={COLORS.danger} />
+                      ) : (
+                        <RefreshCw size={14} color={COLORS.success} />
+                      )}
                     </TouchableOpacity>
                   </TouchableOpacity>
 
@@ -666,7 +750,7 @@ const EmployeesScreen: React.FC = () => {
         emp={selectedEmp}
         visible={showDetail}
         onClose={() => setShowDetail(false)}
-        monthSales={0}   // wire: pass from getMonthlyAggregates for selectedEmp
+        monthSales={0} // wire: pass from getMonthlyAggregates for selectedEmp
       />
 
       {/* Add / Edit Modal */}
@@ -691,30 +775,30 @@ const empSt = StyleSheet.create({
     paddingHorizontal: 18, paddingVertical: 16,
   },
   locationButton: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 10,
-  backgroundColor: COLORS.primaryMuted,
-  borderRadius: 12,
-  paddingHorizontal: 14,
-  paddingVertical: 12,
-  borderWidth: 1,
-  borderColor: COLORS.primaryLight,
-},
-locationButtonText: {
-  flex: 1,
-  fontSize: 14,
-  color: COLORS.primary,
-  fontWeight: "600",
-},
-locationHint: {
-  fontSize: 11,
-  color: COLORS.textMuted,
-  marginTop: 6,
-  fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-},
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: COLORS.primaryMuted,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
+  },
+  locationButtonText: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.primary,
+    fontWeight: "600",
+  },
+  locationHint: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 6,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
   headerLeft: { flex: 1 },
-    menuBtn: {
+  menuBtn: {
     width: 46,
     height: 46,
     borderRadius: 23,
@@ -742,10 +826,11 @@ locationHint: {
   searchBox: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: COLORS.cardBg, borderRadius: 14,
-    paddingHorizontal: 14, paddingVertical: 10,
+    paddingHorizontal: 14, paddingVertical: 8, // Reduced vertical padding
     borderWidth: 1, borderColor: COLORS.border,
+    minHeight: 44, // Fixed height
   },
-  searchInput: { flex: 1, fontSize: 14, color: COLORS.textPrimary },
+  searchInput: { flex: 1, fontSize: 14, color: COLORS.textPrimary, paddingVertical: 6 }, // Reduced padding
 
   filterRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   filterPill: {
@@ -788,6 +873,51 @@ locationHint: {
   emptyText: {
     textAlign: "center", color: COLORS.textMuted,
     marginTop: 40, fontSize: 14,
+  },
+
+  // Password field styles
+  passwordContainer: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  passwordInput: {
+    flex: 1,
+    paddingRight: 45,
+  },
+  eyeIcon: {
+    position: "absolute",
+    right: 12,
+    padding: 8,
+  },
+  updatePasswordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
+  },
+  updatePasswordCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  updatePasswordCheckboxActive: {
+    backgroundColor: COLORS.primary,
+  },
+  updatePasswordLabel: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: "500",
+  },
+  passwordRestrictionText: {
+    fontSize: 11,
+    color: COLORS.warning,
+    marginTop: 6,
   },
 
   // Modals
