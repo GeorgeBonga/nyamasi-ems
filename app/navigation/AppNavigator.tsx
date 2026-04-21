@@ -7,8 +7,6 @@ import LoginScreen from "../screens/auth/LoginScreen";
 import CheckInScreen from "../screens/employee/checkIn/CheckInScreen";
 import EmployeeDashboardScreen from "../screens/employee/dashboard/EmployeeDashboardScreen";
 import ReportHistoryScreen from "../screens/employee/dashboard/ReportHistoryScreen";
-import RiderDeliveryScreen from "../screens/employee/rider/RiderDeliveryScreen";
-
 import AdminDrawerNavigator from "./AdminDrawerNavigator";
 
 export type RootStackParamList = {
@@ -49,10 +47,6 @@ export default function AppNavigator() {
       <Stack.Screen
         name="ReportHistoryScreen"
         component={ReportHistoryScreen}
-      />
-      <Stack.Screen
-        name="RiderDeliveryScreen"
-        component={RiderDeliveryScreen}
       />
 
       <Stack.Screen name="Admin" component={AdminDrawerNavigator} />

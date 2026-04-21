@@ -146,57 +146,97 @@ const CheckInScreen: React.FC = () => {
   };
 
   // ─── Handle Check In ───────────────────────────────────────────────────────
-  const handleCheckIn = async () => {
-    if (!coords) {
-      Alert.alert("No Location", "Please wait for your location to load.");
-      return;
-    }
-    if (!employee) {
-      Alert.alert("Error", "Employee data not loaded.");
-      return;
-    }
+  // const handleCheckIn = async () => {
+  //   if (!coords) {
+  //     Alert.alert("No Location", "Please wait for your location to load.");
+  //     return;
+  //   }
+  //   if (!employee) {
+  //     Alert.alert("Error", "Employee data not loaded.");
+  //     return;
+  //   }
 
-    // Pre-flight geo-fence check (UI-level guard before hitting service)
-    if (withinRadius === false) {
-      Alert.alert(
-        "Outside Work Zone",
-        `You are ${distanceMeters} m away from ${employee.assignedLocation.name}.\n\nYou must be within ${employee.assignedLocation.radiusMeters} m to check in.\n\nPlease move to your assigned location.`
-      );
-      return;
-    }
+  //   // Pre-flight geo-fence check (UI-level guard before hitting service)
+  //   if (withinRadius === false) {
+  //     Alert.alert(
+  //       "Outside Work Zone",
+  //       `You are ${distanceMeters} m away from ${employee.assignedLocation.name}.\n\nYou must be within ${employee.assignedLocation.radiusMeters} m to check in.\n\nPlease move to your assigned location.`
+  //     );
+  //     return;
+  //   }
 
-    setCheckingIn(true);
-    try {
-      const result = await recordCheckIn({
-        employeeId,
-        latitude:     coords.latitude,
-        longitude:    coords.longitude,
-        accuracy:     coords.accuracy,
-        locationName,
-      });
+  //   setCheckingIn(true);
+  //   try {
+  //     const result = await recordCheckIn({
+  //       employeeId,
+  //       latitude:     coords.latitude,
+  //       longitude:    coords.longitude,
+  //       accuracy:     coords.accuracy,
+  //       locationName,
+  //     });
 
-      // if (!result.success) {
-      //   Alert.alert("Check-in Failed", result.error ?? "Please try again.");
-      //   return;
-      // }
+  //     // if (!result.success) {
+  //     //   Alert.alert("Check-in Failed", result.error ?? "Please try again.");
+  //     //   return;
+  //     // }
 
-      Alert.alert(
-        "Checked In",
-        `Welcome, ${employee.firstName}! You are checked in at ${employee.assignedLocation.name}.`,
-        [
-          {
-            text: "Go to Dashboard",
-            onPress: () => navigation.replace("EmployeeDashboard", { employeeId }),
+  //     // Alert.alert(
+  //     //   "Checked In",
+  //     //   `Welcome, ${employee.firstName}! You are checked in at ${employee.assignedLocation.name}.`,
+  //     //   [
+  //     //     {
+  //     //       text: "Go to Dashboard",
+  //     //       onPress: () => navigation.navigate("EmployeeDashboard", { employeeId }),
              
-          },
-        ]
-      );
-    } catch {
-      Alert.alert("Error", "Check-in failed. Please try again.");
-    } finally {
-      setCheckingIn(false);
-    }
-  };
+  //     //     },
+  //     //   ]
+  //     // );
+  //   } catch {
+  //     Alert.alert("Error", "Check-in failed. Please try again.");
+  //   } finally {
+  //     setCheckingIn(false);
+  //   }
+  // };
+
+  // ─── Handle Check In ───────────────────────────────────────────────────────
+const handleCheckIn = async () => {
+  if (!coords) {
+    Alert.alert("No Location", "Please wait for your location to load.");
+    return;
+  }
+  if (!employee) {
+    Alert.alert("Error", "Employee data not loaded.");
+    return;
+  }
+
+  if (withinRadius === false) {
+    Alert.alert(
+      "Outside Work Zone",
+      `You are ${distanceMeters} m away from ${employee.assignedLocation.name}.\n\nYou must be within ${employee.assignedLocation.radiusMeters} m to check in.\n\nPlease move to your assigned location.`
+    );
+    return;
+  }
+
+  setCheckingIn(true);
+  try {
+    const result = await recordCheckIn({
+      employeeId,
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      accuracy: coords.accuracy,
+      locationName,
+    });
+
+    // Navigate immediately after successful check-in
+    // The dashboard will handle its own loading state
+    navigation.navigate("EmployeeDashboard", { employeeId });
+    
+  } catch (error) {
+    Alert.alert("Error", "Check-in failed. Please try again.");
+  } finally {
+    setCheckingIn(false);
+  }
+};
 
   // ─── Map region ────────────────────────────────────────────────────────────
   // Centre the map on the assigned location so the circle is always visible
@@ -266,7 +306,7 @@ const CheckInScreen: React.FC = () => {
        
                <TouchableOpacity
             style={s.backBtn}
-            onPress={() => navigation.replace("Login")}
+            onPress={() => navigation.navigate("Login")}
             activeOpacity={0.7}
           >
             <LogOut size={22} color="#fff" strokeWidth={2.5} />
@@ -399,7 +439,7 @@ const CheckInScreen: React.FC = () => {
           )}
 
           {/* Check In Button */}
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={[s.checkInBtn, btnDisabled && s.checkInBtnDisabled]}
             onPress={handleCheckIn}
             activeOpacity={0.82}
@@ -415,7 +455,30 @@ const CheckInScreen: React.FC = () => {
                 </Text>
               </>
             )}
-          </TouchableOpacity>
+          </TouchableOpacity> */}
+
+
+          {/* Check In Button */}
+<TouchableOpacity
+  style={[s.checkInBtn, btnDisabled && s.checkInBtnDisabled]}
+  onPress={handleCheckIn}
+  activeOpacity={0.82}
+  disabled={btnDisabled}
+>
+  {checkingIn ? (
+    <>
+      <ActivityIndicator color="#fff" size="small" />
+      <Text style={[s.checkInBtnText, { marginLeft: 8 }]}>CHECKING IN...</Text>
+    </>
+  ) : (
+    <>
+      <CheckCircle2 size={18} color="#fff" strokeWidth={2.5} style={{ marginRight: 8 }} />
+      <Text style={s.checkInBtnText}>
+        {withinRadius === false ? "NOT IN WORK ZONE" : "CHECK IN NOW"}
+      </Text>
+    </>
+  )}
+</TouchableOpacity>
 
           <Text style={s.infoText}>
             Your check-in location is verified against your assigned work zone. You must be within {employee?.assignedLocation.radiusMeters ?? 500} m of {employee?.assignedLocation.name ?? "your assigned location"}.

@@ -94,7 +94,7 @@ export default FloatingInput;
 const styles = StyleSheet.create({
   container: {
     width: "100%",
-    height: 56,
+    height: 54,
     borderWidth: 1.5,
     borderRadius: 12,
     marginBottom: 18,

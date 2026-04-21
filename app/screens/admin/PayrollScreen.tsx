@@ -23,7 +23,6 @@ import {
   Alert,
   TextInput,
   ActivityIndicator,
-  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -31,10 +30,9 @@ import {
   Eye, FileText, CheckCircle,
   Menu, X, Edit2, Printer,
 } from "lucide-react-native";
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from "expo-print";
-import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
-import Logo from "../../../assets/images/icon.png";
 
 import {
   getPayrollByPeriod,
@@ -53,10 +51,10 @@ import {
 
 // ─── Company branding ─────────────────────────────────────────────────────────
 const COMPANY_NAME    = "Nyamasi Roselle";
-const COMPANY_TAGLINE = "Human Resources & Payroll";
+const COMPANY_TAGLINE = "Nyamasi Roselle Payroll";
 const COMPANY_ADDRESS = "Nairobi, Kenya";
-const COMPANY_EMAIL   = "hr@nyamasiroselle.co.ke";
-const COMPANY_PHONE   = "+254 700 000 000";
+const COMPANY_EMAIL   = "nyamasiroselle@gmail.com";
+const COMPANY_PHONE   = "0714490058";
 
 /**
  * Converts the bundled Logo asset to a base64 data-URI at runtime so it can
@@ -64,17 +62,12 @@ const COMPANY_PHONE   = "+254 700 000 000";
  * that cannot resolve Metro asset URIs or require() paths).
  */
 async function getLogoBase64(): Promise<string> {
-  try {
-    const logoUri = Image.resolveAssetSource(Logo).uri;
-    // On Android the URI may already be a file:// path; on iOS it is an asset URL.
-   const logoBase64 = await FileSystem.readAsStringAsync(logoUri, {
-  encoding: 'base64',
-});
-    return `data:image/jpeg;base64,${logoBase64}`;
-  } catch {
-    // Transparent 1×1 fallback so PDF still renders if logo can't load
-    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-  }
+  // Direct URL to your logo on Cloudinary
+  const LOGO_URL = "https://res.cloudinary.com/dalzn1yk6/image/upload/v1771917700/log_hc5aed.png";
+  
+  // Return the URL directly - expo-print can load external images
+  // No need to convert to base64 when using online URLs
+  return LOGO_URL;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -144,7 +137,7 @@ const PDF_STYLES = `
   /* ── letterhead ── */
   .letterhead { display: flex; align-items: stretch; margin-bottom: 0; }
   .letterhead-left { display: flex; align-items: center; gap: 16px; flex: 1; }
-  .logo { width: 64px; height: 64px; border-radius: 12px; object-fit: cover; border: 2px solid #f0e8e9; }
+  .logo { width: 64px; height: 64px;  object-fit: cover;  }
   .company-block { display: flex; flex-direction: column; justify-content: center; }
   .company-name { font-size: 24px; font-weight: 900; color: #8B0111; letter-spacing: -0.8px; line-height: 1.1; }
   .company-sub  { font-size: 10px; font-weight: 600; color: #4A6580; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 3px; }
@@ -161,7 +154,7 @@ const PDF_STYLES = `
   .doc-meta strong { color: #0D2137; font-size: 11px; }
 
   /* ── employee hero card ── */
-  .emp-hero { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, #F0F5FB 0%, #E8EFF8 100%); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; border-left: 4px solid #8B0111; }
+  .emp-hero { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, #F0F5FB 0%, #E8EFF8 100%); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; }
   .emp-avatar { width: 52px; height: 52px; border-radius: 26px; background: rgba(139,1,17,0.12); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 900; color: #8B0111; flex-shrink: 0; border: 2px solid rgba(139,1,17,0.2); }
   .emp-info   { flex: 1; margin-left: 16px; }
   .emp-name   { font-size: 17px; font-weight: 800; color: #0D2137; }
@@ -216,9 +209,9 @@ const PDF_STYLES = `
   .footer-badge { display: inline-block; background: rgba(139,1,17,0.08); color: #8B0111; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; }
 
   /* ── full payroll report ── */
-  .report-band { background: linear-gradient(135deg, #8B0111 0%, #6B0009 100%); padding: 28px 32px; border-radius: 14px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
-  .report-band-title { font-size: 22px; font-weight: 900; color: #fff; letter-spacing: -0.5px; }
-  .report-band-sub   { font-size: 12px; color: rgba(255,255,255,0.7); margin-top: 4px; }
+  .report-band { background:  #D1D5DB; padding: 28px 32px; border-radius: 14px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+  .report-band-title { font-size: 22px; font-weight: 900; color: #000; letter-spacing: -0.5px; }
+  .report-band-sub   { font-size: 12px; color: rgba(10, 10, 10, 0.7); margin-top: 4px; }
   .summary-grid { display: flex; gap: 10px; margin-bottom: 24px; }
   .sum-box { flex: 1; border: 1px solid #D6E4F0; border-radius: 10px; padding: 14px 12px; background: #F8FAFC; }
   .sum-box.accent { background: rgba(139,1,17,0.05); border-color: rgba(139,1,17,0.2); }
@@ -473,7 +466,7 @@ async function buildFullPayrollHTML(records: HydratedPayroll[], period: string):
       <div class="report-band-title">KES ${totalNet.toLocaleString()}</div>
       <div class="report-band-sub">Total Net Payroll · ${period} · ${records.length} Employees</div>
     </div>
-    <img src="${logoSrc}" style="width:48px;height:48px;border-radius:8px;opacity:0.6" />
+    <img src="${logoSrc}" style="width:48px;height:48px;" />
   </div>
 
   <!-- Summary boxes -->
@@ -571,61 +564,73 @@ async function buildFullPayrollHTML(records: HydratedPayroll[], period: string):
  *
  * A success alert tells the user exactly where the file landed.
  */
+
 async function exportPDF(html: string, fileName: string): Promise<void> {
   try {
-    // 1. Render HTML → temp PDF
-    const { uri: tmpUri } = await Print.printToFileAsync({ html, base64: false });
+    const { uri: tmpUri } = await Print.printToFileAsync({
+      html,
+      base64: false,
+    });
 
     const safeFileName = `${fileName.replace(/[^a-zA-Z0-9_\-]/g, "_")}.pdf`;
 
+    // 🍏 iOS
     if (Platform.OS === "ios") {
-      // ── iOS: copy into the app Documents folder (Files app accessible) ──
-      const destUri = `${(FileSystem as any).documentDirectory}${safeFileName}`;
+      const destUri = FileSystem.documentDirectory + safeFileName;
       await FileSystem.copyAsync({ from: tmpUri, to: destUri });
+      await FileSystem.deleteAsync(tmpUri, { idempotent: true });
+      Alert.alert("✓ PDF Saved", `"${safeFileName}" saved to Files.`);
+    }
 
-      Alert.alert(
-        "✓ PDF Saved",
-        `"${safeFileName}" has been saved to your Files app under On My iPhone → ${COMPANY_NAME}.`,
-        [{ text: "OK" }]
-      );
-    } else {
-      // ── Android: save to public Downloads via MediaLibrary ──
+    // 🤖 Android - Direct to Documents
+    else {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission Required",
-          "Please grant storage permission to save PDFs to your Downloads folder.",
-          [{ text: "OK" }]
-        );
+        Alert.alert("Permission Required", "Allow storage access to save PDFs.");
         return;
       }
 
-      // Create the asset in MediaLibrary (lands in Downloads)
-      const asset = await MediaLibrary.createAssetAsync(tmpUri);
-      // Try to put it in a named album for cleaner organisation
-      let album = await MediaLibrary.getAlbumAsync(COMPANY_NAME);
-      if (album) {
-        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+      // Read the temporary PDF file
+      const pdfContent = await FileSystem.readAsStringAsync(tmpUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Request Documents directory access
+      const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      
+      if (permissions.granted) {
+        // Create file directly in Documents folder
+        const documentsUri = await FileSystem.StorageAccessFramework.createFileAsync(
+          permissions.directoryUri,
+          safeFileName,
+          'application/pdf'
+        );
+        
+        // Write PDF content directly to Documents
+        await FileSystem.StorageAccessFramework.writeAsStringAsync(
+          documentsUri,
+          pdfContent,
+          { encoding: FileSystem.EncodingType.Base64 }
+        );
+        
+        // Clean up temp file
+        await FileSystem.deleteAsync(tmpUri, { idempotent: true });
+        
+        Alert.alert("✓ PDF Saved", `"${safeFileName}" saved to Documents.`);
       } else {
-        await MediaLibrary.createAlbumAsync(COMPANY_NAME, asset, false);
+        Alert.alert("Permission Required", "Please allow access to Documents folder to save PDFs.");
       }
-
-      Alert.alert(
-        "✓ PDF Downloaded",
-        `"${safeFileName}" has been saved to your Downloads / ${COMPANY_NAME} folder.`,
-        [{ text: "OK" }]
-      );
     }
-
-    // Clean up the temp file expo-print left behind
-    await FileSystem.deleteAsync(tmpUri, { idempotent: true });
 
   } catch (err: any) {
     console.error("[PayrollScreen] exportPDF error:", err);
-    Alert.alert(
-      "Export Failed",
-      err?.message ?? "Could not save the PDF. Please try again."
-    );
+    
+    let errorMessage = err?.message ?? "Could not save the PDF.";
+    if (errorMessage.includes("DCIM")) {
+      errorMessage = "Storage permission issue. Please check app permissions in Settings.";
+    }
+    
+    Alert.alert("Export Failed", errorMessage);
   }
 }
 
@@ -1214,7 +1219,8 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1, backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -8,
+    // borderTopLeftRadius: 24, borderTopRightRadius: 24, 
+    marginTop: -8,
   },
   scrollContent: { paddingTop: 16, paddingHorizontal: 16 },
 });

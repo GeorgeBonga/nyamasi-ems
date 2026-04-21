@@ -1,16 +1,20 @@
 {
   "expo": {
-    "name": "nyamasi-ems",
+    "name": "Nyamasi Ems",
     "slug": "nyamasi-ems",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "nyamasiems",
     "userInterfaceStyle": "light",
-     "jsEngine": "hermes",
+    "jsEngine": "hermes",
     "newArchEnabled": true,
+    "notification": {
+      "icon": "./assets/images/icon.png",
+      "color": "#ffffff"
+    },
     "splash": {
-      "image": "./assets/images/icon.png",
+      "image": "./assets/images/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -19,15 +23,19 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/ic_launcher.png",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-       "config": {
+      "config": {
         "googleMaps": {
-           "apiKey": ""
+          "apiKey": "AIzaSyDXt21WgF8JjTYCg33rTXQVUDC_CHdJv3w"
         }
       },
       "edgeToEdgeEnabled": true,
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS"
+      ],
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan",
       "package": "com.bonga.nyamasiems"
@@ -38,25 +46,20 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
+      "expo-notifications",
+       "expo-secure-store",
       [
-        "expo-splash-screen",
+        "expo-build-properties",
         {
-          "backgroundColor": "#ffffff",
-          "image": "./assets/images/icon.png",
-          "resizeMode": "contain",
-          "imageWidth": 200
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableSeparateBuildPerCPUArchitecture": true
+          }
         }
       ],
-      ["expo-media-library", { 
-         "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
-          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos.",
-          "isAccessMediaLocationEnabled": true,
-          "granularPermissions": ["audio", "photo"]
-        
- 
-      
-      
-      }]
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

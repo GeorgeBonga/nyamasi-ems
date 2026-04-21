@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import  {useEffect, useState } from "react";
 import {
   Image,
   StyleSheet,
@@ -9,12 +9,11 @@ import {
   TouchableOpacity,
   useColorScheme,
   View as RNView,
-  Alert,
+  Alert,Text, View 
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Text, View } from "../../../components/Themed";
 import { Eye, EyeOff } from "lucide-react-native";
-import Icon from "../../../assets/images/icon.png";
+import Icon from "../../../assets/images/splash.png";
 import BrandBanner from "../../../components/BrandBanner";
 import FloatingInput from "../../../components/FloatingInput";
 import Button from "../../../components/Button";
@@ -39,65 +38,66 @@ const LoginScreen: React.FC = () => {
   const [showPass, setShowPass] = useState(false);
   const [localLoading, setLocalLoading] = useState(false);
   const scheme = useColorScheme();
-  const { withLoader, loading: globalLoading } = useLoader();
+  const { withLoader } = useLoader()
 
   const navigation = useNavigation<NavigationProp>();
   const dark = scheme === "dark";
 
-  const handleLogin = async () => {
-    // Validate inputs
-    if (!phone.trim()) {
-      Alert.alert("Error", "Please enter your phone number");
+ 
+const handleLogin = async () => {
+  if (!phone.trim()) {
+    Alert.alert("Error", "Please enter your phone number");
+    return;
+  }
+  if (!password.trim()) {
+    Alert.alert("Error", "Please enter your password");
+    return;
+  }
+
+  // Start button loading
+  setLocalLoading(true);
+
+  try {
+    const result = await login(phone, password);
+
+    if (!result.success || !result.user) {
+      Alert.alert("Login Failed", result.error || "Invalid credentials. Please try again.");
+      setLocalLoading(false);
       return;
     }
-    if (!password.trim()) {
-      Alert.alert("Error", "Please enter your password");
-      return;
-    }
 
-    setLocalLoading(true);
-    
-    try {
-      const result = await login(phone, password);
+    const { role, employeeId } = result.user;
 
-      if (!result.success || !result.user) {
-        Alert.alert("Login Failed", result.error || "Invalid credentials. Please try again.");
-        return;
-      }
+    // Stop button loading and immediately start global loader
+    setLocalLoading(false);
 
-      const { role, employeeId } = result.user;
-      const employee = result.employee;
-
-      console.log("Login successful:", { role, employeeId, employeeName: employee?.fullName });
-
-      // Navigate based on user role
+    await withLoader(async () => {
+      // Small delay so loader is visible
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
       switch (role) {
         case "admin":
-          navigation.replace("Admin");
+          navigation.navigate("Admin");
           break;
-          
         case "employee":
-          // Pass employeeId to CheckIn screen
           if (!employeeId) {
             Alert.alert("Error", "Employee profile not found. Please contact administrator.");
             return;
           }
-          navigation.replace("CheckIn", { employeeId });
+          navigation.navigate("CheckIn", { employeeId });
           break;
-          
         default:
           Alert.alert("Error", "Unknown user role. Please contact administrator.");
       }
-    } catch (error) {
-      console.error("Login error:", error);
-      Alert.alert("Error", "An unexpected error occurred. Please try again.");
-    } finally {
-      setLocalLoading(false);
-    }
-  };
+    });
 
+  } catch (error) {
+    Alert.alert("Error", "An unexpected error occurred. Please try again.");
+    setLocalLoading(false);
+  }
+};
   // Use either local loading or global loading for the button
-  const isLoading = localLoading || globalLoading;
+  const isLoading = localLoading ;
   const eyeColor = dark ? "#6C7883" : "#aaa";
   const bg = dark ? "#17212B" : WHITE;
 

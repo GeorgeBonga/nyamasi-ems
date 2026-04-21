@@ -44,7 +44,6 @@ import {
   ProductSKU,
 } from "../../../data/dbService";
 import { useLoader } from "../../../context/LoaderContext";
-import GlobalLoader from "../../../../components/GlobalLoader"; 
 
 // ─── Navigation types ─────────────────────────────────────────────────────────
 type DashRouteParams = {
@@ -83,6 +82,7 @@ const getGreeting = (): string => {
   if (h < 17) return "Good afternoon";
   return "Good evening";
 };
+
 
 const formatKES = (n: number): string =>
   `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 0 })}`;
@@ -162,7 +162,7 @@ interface ReportModalProps {
     customers: number,
     samplers:  number,
     notes:     string,
-    photoUri:  string
+    photoUri:  string | null
   ) => Promise<void>;
   submitting: boolean;
 }
@@ -237,10 +237,10 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     // 1. Photo required
-    if (!photoUri) {
-      Alert.alert("Photo Required", "Please upload a sales photo before submitting.");
-      return;
-    }
+    // if (!photoUri) {
+    //   Alert.alert("Photo Required", "Please upload a sales photo before submitting.");
+    //   return;
+    // }
 
     // 2. At least one product
     if (totalItems === 0) {
@@ -302,7 +302,8 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
             {/* ── PHOTO PROOF ── */}
             <View style={styles.sectionHeader}>
               <Camera size={14} color={COLORS.primary} />
-              <Text style={styles.sectionHeaderText}>Sales Photo <Text style={styles.requiredStar}>*</Text></Text>
+                <Text style={styles.sectionHeaderText}>Sales Photo (Optional)</Text>
+              {/* <Text style={styles.sectionHeaderText}>Sales Photo <Text style={styles.requiredStar}>*</Text></Text> */}
             </View>
 
             <TouchableOpacity style={styles.photoBox} onPress={handlePickPhoto} activeOpacity={0.8}>
@@ -510,34 +511,36 @@ const EmployeeDashboardScreen: React.FC = () => {
   const [employee,     setEmployee]     = useState<Employee | null>(null);
   const [summary,      setSummary]      = useState<EmployeeTodaySummary | null>(null);
   const [reportCount,  setReportCount]  = useState(0);
-  const [loading,      setLoading]      = useState(true);
   const [submitting,   setSubmitting]   = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [submitted,    setSubmitted]    = useState(false);
   const [profileUri,   setProfileUri]   = useState<string | null>(null);
-  const { isloading } = useLoader();
+ const { withLoader } = useLoader();
 
   // Track late-flag state for live indicator
   const [isLateNow, setIsLateNow] = useState(false);
 
   // ── Load data ─────────────────────────────────────────────────────────────
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [emp, sum, reports] = await Promise.all([
-        getEmployeeById(employeeId),
-        getEmployeeTodaySummary(employeeId),
-        getReportsByEmployee(employeeId),
-      ]);
-      setEmployee(emp);
-      setSummary(sum);
-      setReportCount(reports.length);
-    } finally {
-      setLoading(false);
-    }
-  }, [employeeId]);
+const loadData = useCallback(async () => {
+  try {
+    const [emp, sum, reports] = await Promise.all([
+      getEmployeeById(employeeId),
+      getEmployeeTodaySummary(employeeId),
+      getReportsByEmployee(employeeId),
+    ]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+    setEmployee(emp);
+    setSummary(sum);
+    setReportCount(reports.length);
+  } catch (error) {
+    Alert.alert("Error", "Failed to load data. Please try again.");
+  }
+}, [employeeId]);
+
+useEffect(() => {
+  withLoader(() => loadData());
+}, [loadData]);
+
 
   // ── Late flag indicator (updates every minute) ────────────────────────────
   useEffect(() => {
@@ -551,35 +554,7 @@ const EmployeeDashboardScreen: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-  const setupNotifications = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== "granted") return;
 
-    await Notifications.cancelAllScheduledNotificationsAsync();
-
-    const now = new Date();
-
-    // 6:00 PM EAT
-    const reminder = new Date(now);
-    reminder.setHours(18, 0, 0, 0);
-    if (reminder.getTime() <= now.getTime()) {
-      reminder.setDate(reminder.getDate() + 1);
-    }
-
- 
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "Daily Report Reminder",
-        body: "It's 6 PM — remember to submit your daily sales report before 7 PM!",
-        sound: true,
-      },
-      trigger: { date: reminder } as any,
-    });
-  };
-
-  setupNotifications();
-}, []);
 
 
   // ── Submit daily report ───────────────────────────────────────────────────
@@ -589,7 +564,7 @@ const EmployeeDashboardScreen: React.FC = () => {
     customers: number,
     samplers:  number,
     notes:     string,
-    photoUri:  string
+    photoUri:  string | null
   ) => {
     setSubmitting(true);
     setModalVisible(false);
@@ -607,7 +582,7 @@ const EmployeeDashboardScreen: React.FC = () => {
         coords:           employee?.lastKnownLocation
           ? { latitude: employee.lastKnownLocation.latitude, longitude: employee.lastKnownLocation.longitude }
           : null,
-        photoUri,
+        photoUri: photoUri ?? "", 
       });
 
       if (!result.success) {
@@ -651,16 +626,7 @@ const EmployeeDashboardScreen: React.FC = () => {
 
   const alreadySubmittedToday = !!summary?.todayReport;
 
-  // ─── Loading ──────────────────────────────────────────────────────────────
-  // if (loading) {
-  //   return (
-  //     <SafeAreaView style={styles.safe} edges={["top"]}>
-       
-  //            {isloading && <GlobalLoader />}
-       
-  //     </SafeAreaView>
-  //   );
-  // }
+
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (

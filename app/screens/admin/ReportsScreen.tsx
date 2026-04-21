@@ -19,12 +19,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
-  StatusBar, Modal, Platform, Alert, TextInput, ActivityIndicator,
+  StatusBar, Modal, Platform, Image, TextInput, ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ChevronDown, Calendar, TrendingUp, Users, Gift,
-  Filter, Eye, FileText, BarChart2, ChevronRight, Search, X,
+  Filter, Eye, FileText, BarChart2, ChevronRight, Search, X,Camera,Package,
   Award, CheckCircle, Menu,
 } from "lucide-react-native";
 
@@ -60,8 +60,12 @@ const COLORS = {
   danger:          "#C62828",
   dangerLight:     "#FFEBEE",
   overlayBg:       "rgba(13,33,55,0.6)",
-};
+   mpesa:         "#00A651",
 
+
+};
+const formatKES = (n: number) =>
+  `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 0 })}`;
 type ReportTab = "daily" | "monthly" | "yearly";
 type Month = "Jan"|"Feb"|"Mar"|"Apr"|"May"|"Jun"|"Jul"|"Aug"|"Sep"|"Oct"|"Nov"|"Dec";
 
@@ -84,92 +88,298 @@ const TrendBar: React.FC<{ value: number; max: number; color: string }> = ({ val
 );
 
 // ─── Daily Card ───────────────────────────────────────────────────────────────
+// const DailyCard: React.FC<{
+//   report: HydratedReport;
+//   onView: () => void;
+//   onApprove: () => void;
+// }> = ({ report, onView, onApprove }) => (
+//   <View style={repSt.dailyCard}>
+//     <View style={repSt.dailyBody}>
+//       {/* Top row */}
+//       <View style={repSt.dailyTop}>
+//         <View style={[repSt.initials, {
+//           backgroundColor: COLORS.primaryMuted,
+//         }]}>
+//           <Text style={[repSt.initialsText, {
+//             color: COLORS.primary,
+//           }]}>
+//             {report.employee?.initials ?? "??"}
+//           </Text>
+//         </View>
+//         <View style={{ flex: 1 }}>
+//           <View style={repSt.nameRow}>
+//             <Text style={repSt.empName}>{report.employee?.fullName ?? "Unknown"}</Text>
+//             {!report.submitted && (
+//               <View style={[repSt.flagBadge, { backgroundColor: COLORS.warningLight }]}>
+//                 <Clock size={10} color={COLORS.warning} />
+//                 <Text style={[repSt.flagText, { color: COLORS.warning }]}>Pending</Text>
+//               </View>
+//             )}
+//             {report.approved && (
+//               <View style={[repSt.flagBadge, { backgroundColor: COLORS.successLight }]}>
+//                 <CheckCircle size={10} color={COLORS.success} />
+//                 <Text style={[repSt.flagText, { color: COLORS.success }]}>Approved</Text>
+//               </View>
+//             )}
+//           </View>
+//           <Text style={repSt.empRole}>
+//             {report.employee?.role ?? ""} · {report.location}
+//           </Text>
+//         </View>
+//         <View style={repSt.dateBox}>
+//           <Text style={repSt.dateDayName}>{report.dayName.slice(0, 3)}</Text>
+//           <Text style={repSt.dateShort}>{report.shortDate}</Text>
+//         </View>
+//       </View>
+
+//       {/* Stats strip */}
+//       <View style={repSt.statsStrip}>
+//         {[
+//           { icon: <TrendingUp size={12} color={COLORS.primary} />, lbl: "Sales",    val: report.sales,             color: COLORS.primary    },
+//           { icon: <Users     size={12} color={COLORS.accentBlue} />, lbl: "Reached", val: report.customersReached,  color: COLORS.accentBlue },
+//           { icon: <Gift      size={12} color={COLORS.success} />, lbl: "Samplers", val: report.samplersGiven,     color: COLORS.success    },
+//         ].map((s, i) => (
+//           <React.Fragment key={s.lbl}>
+//             {i > 0 && <View style={repSt.statDivider} />}
+//             <View style={repSt.statItem}>
+//               {s.icon}
+//               <Text style={repSt.statLbl}>{s.lbl}</Text>
+//               <Text style={[repSt.statVal, { color: s.color }]}>{s.val}</Text>
+//             </View>
+//           </React.Fragment>
+//         ))}
+//       </View>
+
+//       {report.notes ? (
+//         <Text style={repSt.noteText} numberOfLines={2}>{report.notes}</Text>
+//       ) : null}
+
+//       {/* Action row */}
+//       <View style={repSt.actionRow}>
+//         <TouchableOpacity style={repSt.viewRowBtn} onPress={onView} activeOpacity={0.8}>
+//           <Eye size={13} color={COLORS.accentBlue} />
+//           <Text style={repSt.viewRowBtnText}>View</Text>
+//         </TouchableOpacity>
+//         {!report.approved && (
+//           <TouchableOpacity
+//             style={[repSt.viewRowBtn, { backgroundColor: COLORS.successLight }]}
+//             onPress={onApprove} activeOpacity={0.8}
+//           >
+//             <CheckCircle size={13} color={COLORS.success} />
+//             <Text style={[repSt.viewRowBtnText, { color: COLORS.success }]}>Approve</Text>
+//           </TouchableOpacity>
+//         )}
+//       </View>
+//     </View>
+//   </View>
+// );
+// ─── Daily Card (Full Detail - matches Employee Report History) ─────────────────
 const DailyCard: React.FC<{
   report: HydratedReport;
   onView: () => void;
   onApprove: () => void;
-}> = ({ report, onView, onApprove }) => (
-  <View style={repSt.dailyCard}>
-    <View style={repSt.dailyBody}>
-      {/* Top row */}
-      <View style={repSt.dailyTop}>
-        <View style={[repSt.initials, {
-          backgroundColor: COLORS.primaryMuted,
-        }]}>
-          <Text style={[repSt.initialsText, {
-            color: COLORS.primary,
-          }]}>
-            {report.employee?.initials ?? "??"}
-          </Text>
-        </View>
-        <View style={{ flex: 1 }}>
-          <View style={repSt.nameRow}>
-            <Text style={repSt.empName}>{report.employee?.fullName ?? "Unknown"}</Text>
-            {!report.submitted && (
-              <View style={[repSt.flagBadge, { backgroundColor: COLORS.warningLight }]}>
-                <Clock size={10} color={COLORS.warning} />
-                <Text style={[repSt.flagText, { color: COLORS.warning }]}>Pending</Text>
+}> = ({ report, onView, onApprove }) => {
+  const sb = report.salesBreakdown;
+  const [showPhoto, setShowPhoto] = useState(false);
+
+  return (
+    <View style={repSt.dailyCard}>
+      <View style={repSt.dailyBody}>
+        {/* Date row */}
+        <View style={repSt.cardHeader}>
+          <View style={repSt.dateRow}>
+            <Calendar size={14} color={COLORS.primary} />
+            <Text style={repSt.cardDate}>{report.date}</Text>
+          </View>
+          <View style={repSt.cardHeaderRight}>
+            <Text style={repSt.cardDay}>{report.dayName.toUpperCase()}</Text>
+
+            {/* Late flag */}
+            {report.lateFlag && (
+              <View style={[repSt.statusPill, { backgroundColor: COLORS.warningLight }]}>
+                <Clock size={9} color={COLORS.warning} />
+                <Text style={[repSt.statusPillText, { color: COLORS.warning }]}>Late</Text>
               </View>
             )}
-            {report.approved && (
-              <View style={[repSt.flagBadge, { backgroundColor: COLORS.successLight }]}>
-                <CheckCircle size={10} color={COLORS.success} />
-                <Text style={[repSt.flagText, { color: COLORS.success }]}>Approved</Text>
+
+            {/* Status */}
+            {!report.submitted ? (
+              <View style={[repSt.statusPill, { backgroundColor: COLORS.warningLight }]}>
+                <Clock size={9} color={COLORS.warning} />
+                <Text style={[repSt.statusPillText, { color: COLORS.warning }]}>Pending</Text>
+              </View>
+            ) : report.approved ? (
+              <View style={[repSt.statusPill, { backgroundColor: COLORS.successLight }]}>
+                <CheckCircle size={9} color={COLORS.success} />
+                <Text style={[repSt.statusPillText, { color: COLORS.success }]}>Approved</Text>
+              </View>
+            ) : (
+              <View style={[repSt.statusPill, { backgroundColor: COLORS.accentBlueLight }]}>
+                <CheckCircle size={9} color={COLORS.accentBlue} />
+                <Text style={[repSt.statusPillText, { color: COLORS.accentBlue }]}>Submitted</Text>
               </View>
             )}
           </View>
-          <Text style={repSt.empRole}>
-            {report.employee?.role ?? ""} · {report.location}
-          </Text>
         </View>
-        <View style={repSt.dateBox}>
-          <Text style={repSt.dateDayName}>{report.dayName.slice(0, 3)}</Text>
-          <Text style={repSt.dateShort}>{report.shortDate}</Text>
-        </View>
-      </View>
 
-      {/* Stats strip */}
-      <View style={repSt.statsStrip}>
-        {[
-          { icon: <TrendingUp size={12} color={COLORS.primary} />, lbl: "Sales",    val: report.sales,             color: COLORS.primary    },
-          { icon: <Users     size={12} color={COLORS.accentBlue} />, lbl: "Reached", val: report.customersReached,  color: COLORS.accentBlue },
-          { icon: <Gift      size={12} color={COLORS.success} />, lbl: "Samplers", val: report.samplersGiven,     color: COLORS.success    },
-        ].map((s, i) => (
-          <React.Fragment key={s.lbl}>
-            {i > 0 && <View style={repSt.statDivider} />}
-            <View style={repSt.statItem}>
-              {s.icon}
-              <Text style={repSt.statLbl}>{s.lbl}</Text>
-              <Text style={[repSt.statVal, { color: s.color }]}>{s.val}</Text>
+        {/* Employee info */}
+        <View style={repSt.employeeRow}>
+          <View style={[repSt.initials, { backgroundColor: COLORS.primaryMuted }]}>
+            <Text style={[repSt.initialsText, { color: COLORS.primary }]}>
+              {report.employee?.initials ?? "??"}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={repSt.empName}>{report.employee?.fullName ?? "Unknown"}</Text>
+            <Text style={repSt.empRole}>
+              {report.employee?.role ?? ""} · {report.location}
+            </Text>
+          </View>
+        </View>
+
+        {/* KES total */}
+        <View style={repSt.kesRow}>
+          <Text style={repSt.kesTotal}>{formatKES(report.totalSalesKES)}</Text>
+          <View style={repSt.kesBadge}>
+            <Text style={repSt.kesBadgeText}>{report.sales} items</Text>
+          </View>
+        </View>
+
+        {/* Stats row */}
+        <View style={repSt.statsRow}>
+          <View style={repSt.statItemFull}>
+            <TrendingUp size={14} color={COLORS.success} />
+            <Text style={repSt.statLabelFull}>Items</Text>
+            <Text style={[repSt.statValueFull, { color: report.flagged ? COLORS.danger : COLORS.textPrimary }]}>
+              {report.sales}
+            </Text>
+          </View>
+          <View style={repSt.statDividerFull} />
+          <View style={repSt.statItemFull}>
+            <Users size={14} color={COLORS.accentBlue} />
+            <Text style={repSt.statLabelFull}>Reached</Text>
+            <Text style={repSt.statValueFull}>{report.customersReached}</Text>
+          </View>
+          <View style={repSt.statDividerFull} />
+          <View style={repSt.statItemFull}>
+            <Gift size={14} color={COLORS.primary} />
+            <Text style={repSt.statLabelFull}>Samplers</Text>
+            <Text style={repSt.statValueFull}>{report.samplersGiven}</Text>
+          </View>
+        </View>
+
+        {/* Payment breakdown */}
+        {sb && (
+          <View style={repSt.paymentMini}>
+            <View style={repSt.paymentMiniItem}>
+              <Text style={repSt.paymentMiniLabel}>Cash</Text>
+              <Text style={[repSt.paymentMiniVal, { color: COLORS.textPrimary }]}>
+                {formatKES(sb.cash)}
+              </Text>
             </View>
-          </React.Fragment>
-        ))}
-      </View>
+            <View style={repSt.paymentMiniDivider} />
+            <View style={repSt.paymentMiniItem}>
+              <Text style={repSt.paymentMiniLabel}>M-Pesa</Text>
+              <Text style={[repSt.paymentMiniVal, { color: COLORS.mpesa }]}>
+                {formatKES(sb.mpesa)}
+              </Text>
+            </View>
+            {sb.debt > 0 && (
+              <>
+                <View style={repSt.paymentMiniDivider} />
+                <View style={repSt.paymentMiniItem}>
+                  <Text style={repSt.paymentMiniLabel}>Debt</Text>
+                  <Text style={[repSt.paymentMiniVal, { color: COLORS.warning }]}>
+                    {formatKES(sb.debt)}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        )}
 
-      {report.notes ? (
-        <Text style={repSt.noteText} numberOfLines={2}>{report.notes}</Text>
-      ) : null}
+        {/* Product breakdown */}
+        {sb?.items && sb.items.length > 0 && (
+          <View style={repSt.productsSection}>
+            <View style={repSt.productsSectionHeader}>
+              <Package size={11} color={COLORS.textMuted} />
+              <Text style={repSt.productsSectionTitle}>Products Sold</Text>
+            </View>
+            {sb.items.map((item) => (
+              <View key={item.sku} style={repSt.productLine}>
+                <Text style={repSt.productLineName} numberOfLines={1}>
+                  {item.sku.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </Text>
+                <Text style={repSt.productLineQty}>×{item.qty}</Text>
+                <Text style={repSt.productLineAmt}>{formatKES(item.subtotal)}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
-      {/* Action row */}
-      <View style={repSt.actionRow}>
-        <TouchableOpacity style={repSt.viewRowBtn} onPress={onView} activeOpacity={0.8}>
-          <Eye size={13} color={COLORS.accentBlue} />
-          <Text style={repSt.viewRowBtnText}>View</Text>
-        </TouchableOpacity>
-        {!report.approved && (
-          <TouchableOpacity
-            style={[repSt.viewRowBtn, { backgroundColor: COLORS.successLight }]}
-            onPress={onApprove} activeOpacity={0.8}
-          >
-            <CheckCircle size={13} color={COLORS.success} />
-            <Text style={[repSt.viewRowBtnText, { color: COLORS.success }]}>Approve</Text>
+        {/* Photo proof thumbnail */}
+        {report.photoUri && (
+          <TouchableOpacity style={repSt.photoRow} onPress={() => setShowPhoto(true)} activeOpacity={0.8}>
+            <Image source={{ uri: report.photoUri }} style={repSt.photoThumb} />
+            <View style={repSt.photoLabel}>
+              <Camera size={12} color={COLORS.success} />
+              <Text style={repSt.photoLabelText}>Sales Photo · Tap to view</Text>
+            </View>
           </TouchableOpacity>
         )}
-      </View>
-    </View>
-  </View>
-);
 
+        {/* Notes */}
+        {!!report.notes && (
+          <Text style={repSt.notesPreview} numberOfLines={2}>
+            {report.notes}
+          </Text>
+        )}
+
+        {/* Submitted time */}
+        {report.submittedAt && (
+          <Text style={[
+            repSt.submittedAt,
+            report.lateFlag && { color: COLORS.warning },
+          ]}>
+            {report.lateFlag ? "⚠ " : ""}Submitted: {new Date(report.submittedAt).toLocaleTimeString("en-KE", {
+              hour: "2-digit", minute: "2-digit", hour12: true,
+            })} EAT
+          </Text>
+        )}
+
+        {/* Action row */}
+        <View style={repSt.actionRow}>
+          <TouchableOpacity style={repSt.viewRowBtn} onPress={onView} activeOpacity={0.8}>
+            <Eye size={13} color={COLORS.accentBlue} />
+            <Text style={repSt.viewRowBtnText}>View Details</Text>
+          </TouchableOpacity>
+          {!report.approved && report.submitted && (
+            <TouchableOpacity
+              style={[repSt.viewRowBtn, { backgroundColor: COLORS.successLight }]}
+              onPress={onApprove} activeOpacity={0.8}
+            >
+              <CheckCircle size={13} color={COLORS.success} />
+              <Text style={[repSt.viewRowBtnText, { color: COLORS.success }]}>Approve</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Photo Viewer Modal */}
+      {showPhoto && report.photoUri && (
+        <Modal visible animationType="fade" transparent onRequestClose={() => setShowPhoto(false)}>
+          <TouchableOpacity style={repSt.photoBackdrop} activeOpacity={1} onPress={() => setShowPhoto(false)}>
+            <Image source={{ uri: report.photoUri }} style={repSt.photoFullImage} resizeMode="contain" />
+            
+            <TouchableOpacity style={repSt.photoCloseBtn} onPress={() => setShowPhoto(false)}>
+              <X size={20} color={COLORS.white} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
+    </View>
+  );
+};
 // ─── Monthly Row ──────────────────────────────────────────────────────────────
 const MonthlyRow: React.FC<{
   agg: EmployeeMonthlyAggregate;
@@ -839,9 +1049,10 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flex: 1, backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -8,
+    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
+     marginTop: -8,paddingBottom:8,
   },
-  scrollContent: { paddingTop: 16, paddingHorizontal: 16 },
+  scrollContent: { paddingTop: 16, paddingHorizontal: 16,paddingBottom:16, },
 });
 
 // ─── Report-specific styles ───────────────────────────────────────────────────
@@ -903,7 +1114,7 @@ const repSt = StyleSheet.create({
     shadowColor:COLORS.textPrimary, shadowOpacity:0.05, shadowRadius:8,
     shadowOffset:{ width:0, height:2 }, elevation:2,
   },
-  dailyBody: { padding:14, gap:10 },
+  dailyBody: { padding:14, gap:0 },
   dailyTop: { flexDirection:"row", alignItems:"flex-start", gap:10 },
   initials: {
     width:36, height:36, borderRadius:10,
@@ -1026,6 +1237,72 @@ const repSt = StyleSheet.create({
   detailInfoVal: { fontSize:13, color:COLORS.textPrimary, fontWeight:"700", flex:1, textAlign:"right" },
   notesCard: { backgroundColor:COLORS.background, borderRadius:14, padding:14, marginBottom:12 },
   notesText: { fontSize:13, color:COLORS.textSecondary, lineHeight:20 },
+
+
+  // Card header (matching employee history)
+cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+cardHeaderRight: { flexDirection: "row", alignItems: "center", gap: 5 },
+dateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+cardDate: { fontSize: 14, fontWeight: "800", color: COLORS.textPrimary },
+cardDay: { fontSize: 10, fontWeight: "600", color: COLORS.textMuted, letterSpacing: 0.4 },
+statusPill: {
+  flexDirection: "row", alignItems: "center", gap: 3,
+  paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
+},
+statusPillText: { fontSize: 9, fontWeight: "700" },
+
+// Employee row
+employeeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+
+// KES row
+kesRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+kesTotal: { fontSize: 20, fontWeight: "900", color: COLORS.primary },
+kesBadge: { backgroundColor: COLORS.primaryMuted, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+kesBadgeText: { fontSize: 11, fontWeight: "700", color: COLORS.primary },
+
+// Stats row (full width)
+statsRow: {
+  flexDirection: "row", alignItems: "center",
+  backgroundColor: COLORS.background, borderRadius: 12,
+  paddingVertical: 10, paddingHorizontal: 8, marginBottom: 8,
+},
+statItemFull: { flex: 1, alignItems: "center", gap: 3 },
+statLabelFull: { fontSize: 10, fontWeight: "600", color: COLORS.textMuted, textTransform: "uppercase" },
+statValueFull: { fontSize: 16, fontWeight: "800" },
+statDividerFull: { width: 1, height: 30, backgroundColor: COLORS.border },
+
+// Payment mini
+paymentMini: {
+  flexDirection: "row", alignItems: "center",
+  backgroundColor: COLORS.background, borderRadius: 10,
+  paddingVertical: 8, paddingHorizontal: 10, marginBottom: 8,
+},
+paymentMiniItem: { flex: 1, alignItems: "center" },
+paymentMiniLabel: { fontSize: 10, color: COLORS.textMuted, fontWeight: "600", textTransform: "uppercase" },
+paymentMiniVal: { fontSize: 12, fontWeight: "800", marginTop: 2 },
+paymentMiniDivider: { width: 1, height: 28, backgroundColor: COLORS.border },
+
+// Products section
+productsSection: { borderRadius: 10, backgroundColor: COLORS.background, padding: 10, marginBottom: 8 },
+productsSectionHeader: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 },
+productsSectionTitle: { fontSize: 10, fontWeight: "700", color: COLORS.textMuted, textTransform: "uppercase" },
+productLine: { flexDirection: "row", alignItems: "center", paddingVertical: 3 },
+productLineName: { flex: 1, fontSize: 11, color: COLORS.textSecondary, fontWeight: "600" },
+productLineQty: { fontSize: 11, fontWeight: "700", color: COLORS.textMuted, width: 28, textAlign: "center" },
+productLineAmt: { fontSize: 11, fontWeight: "800", color: COLORS.primary, width: 75, textAlign: "right" },
+
+// Photo
+photoRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+photoThumb: { width: 52, height: 40, borderRadius: 8, backgroundColor: COLORS.border },
+photoLabel: { flexDirection: "row", alignItems: "center", gap: 5 },
+photoLabelText: { fontSize: 11, color: COLORS.success, fontWeight: "600" },
+photoBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.9)", alignItems: "center", justifyContent: "center" },
+photoFullImage: { width: "90%", height: "70%" },
+photoCloseBtn: { position: "absolute", top: 50, right: 20, padding: 10 },
+
+// Notes & submitted
+notesPreview: { fontSize: 11, color: COLORS.textSecondary, fontWeight: "500", fontStyle: "italic", marginBottom: 6 },
+submittedAt: { fontSize: 10, color: COLORS.textMuted, fontWeight: "500", marginBottom: 8 },
 });
 
 export default ReportsScreen;

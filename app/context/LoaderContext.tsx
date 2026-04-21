@@ -1,29 +1,30 @@
 import React, { createContext, useContext, useState } from "react";
 
-const LoaderContext = createContext<any>(null);
+interface LoaderContextType {
+  loading: boolean;
+  showLoader: () => void;
+  hideLoader: () => void;
+  withLoader: <T>(callback: () => Promise<T>) => Promise<T>;
+}
 
-export const LoaderProvider = ({ children }: any) => {
+const LoaderContext = createContext<LoaderContextType | null>(null);
+
+export const LoaderProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(false);
 
   const showLoader = () => setLoading(true);
-
   const hideLoader = () => setLoading(false);
 
-  // 🔥 Professional: ensures loader shows at least 3 seconds
-  const withLoader = async (callback: () => Promise<any>) => {
+  const withLoader = async <T,>(callback: () => Promise<T>): Promise<T> => {
     try {
       setLoading(true);
       const start = Date.now();
-
       const result = await callback();
-
       const elapsed = Date.now() - start;
       const remaining = 3000 - elapsed;
-
       if (remaining > 0) {
         await new Promise((res) => setTimeout(res, remaining));
       }
-
       return result;
     } finally {
       setLoading(false);
@@ -37,4 +38,8 @@ export const LoaderProvider = ({ children }: any) => {
   );
 };
 
-export const useLoader = () => useContext(LoaderContext);
+export const useLoader = () => {
+  const ctx = useContext(LoaderContext);
+  if (!ctx) throw new Error("useLoader must be used within a LoaderProvider");
+  return ctx;
+};

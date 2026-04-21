@@ -1,5 +1,4 @@
-// GlobalLoader.tsx
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { StyleSheet, Animated, Dimensions, Image } from "react-native";
 import { useLoader } from "../app/context/LoaderContext";
 import Spinner from "../assets/images/spinner.gif";
@@ -10,10 +9,11 @@ const GlobalLoader = () => {
   const { loading } = useLoader();
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.95)).current;
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     if (loading) {
-      // Show loader with animation
+      setVisible(true); // Mount first, then animate in
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 1,
@@ -27,7 +27,7 @@ const GlobalLoader = () => {
         }),
       ]).start();
     } else {
-      // Hide loader with animation
+      // Animate out, THEN unmount
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 0,
@@ -39,11 +39,11 @@ const GlobalLoader = () => {
           friction: 8,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(() => setVisible(false)); // ← unmount only after animation ends
     }
   }, [loading]);
 
-  if (!loading) return null;
+  if (!visible) return null;
 
   return (
     <Animated.View style={[styles.overlay, { opacity }]}>
@@ -58,15 +58,18 @@ export default GlobalLoader;
 
 const styles = StyleSheet.create({
   overlay: {
+    // ✅ Full-screen white background
     position: "absolute",
     top: 0,
     left: 0,
-    right: 0,
-    bottom: 0,
+    width,
+    height,
+    backgroundColor: "#ffffff",
     justifyContent: "center",
     alignItems: "center",
+    // ✅ Sit on top of everything
     zIndex: 9999,
-    backgroundColor: "#FFFFFF",
+    elevation: 9999,
   },
   spinner: {
     width: 120,

@@ -1,49 +1,186 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  NYAMASI FEMS — DATA SERVICE LAYER  (dbService.ts)
+ *  NYAMASI FEMS — SUPABASE SERVICE LAYER  (supabaseService.ts)
  *
- *  All reads and writes flow through here. Every screen imports ONLY from this
- *  file — never from mockDB directly.
+ *  Drop-in replacement for dbService.ts.
+ *  Every function signature is identical — your screens need zero changes.
  *
- *  Key features:
- *  • Geo-fence validation on check-in (500 m radius)
- *  • Late submission flag (after 19:00 EAT)
- *  • Payment breakdown: Cash + M-Pesa + Debt (must equal totalAmount)
- *  • Product line items (4 Hibiscus SKUs)
- *  • Photo proof required before submission
- *  • Auto-calculated totals (totalAmount, totalItems)
+ *  Setup:
+ *    1. npm install @supabase/supabase-js
+ *    2. Copy your project URL + anon key from Supabase → Settings → API
+ *    3. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-import { db, PRODUCTS } from "./mockDB";
-import type {
-  User, Employee, Report, CheckIn, PayrollRecord,
-  SalesBreakdown, ProductLineItem, ProductSKU,
-  UserRole, EmpRole, EmpStatus, PayStatus,
-} from "./mockDB";
+import { createClient } from "@supabase/supabase-js";
+import * as SecureStore from "expo-secure-store";
 
-// ─── Re-export types so screens only need one import path ─────────────────────
-export type {
-  User, Employee, Report, CheckIn, PayrollRecord,
-  SalesBreakdown, ProductLineItem, ProductSKU,
-  UserRole, EmpRole, EmpStatus, PayStatus,
+// ─── Client init ─────────────────────────────────────────────────────────────
+
+const SUPABASE_URL = "https://zagvjjxmwgldkepisoga.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphZ3Zqanhtd2dsZGtlcGlzb2dhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzI5MDIsImV4cCI6MjA5MjI0ODkwMn0.x_RvgV52Hh2cziaC81BGCa3zALbhZRnoZFfmgARiGRU";
+
+const ExpoSecureStoreAdapter = {
+  getItem: (key: string) => SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
 };
 
-export { PRODUCTS };
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: {
+    storage: ExpoSecureStoreAdapter as any,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
+
+// ─── Types (identical to mockDB types) ────────────────────────────────────────
+
+export type UserRole = "admin" | "employee";
+export type EmpRole = "sales_rep" | "supervisor" | "manager";
+export type EmpStatus = "active" | "inactive" | "suspended";
+export type PayStatus = "draft" | "pending" | "paid";
+export type ProductSKU =
+  | "hibiscus-powder"
+  | "hibiscus-flower"
+  | "hibiscus-teabag"
+  | "hibiscus-teacut";
+
+export interface Product {
+  sku: ProductSKU;
+  name: string;
+  unitPrice: number;
+}
+
+export interface ProductLineItem {
+  sku: ProductSKU;
+  qty: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface SalesBreakdown {
+  items: ProductLineItem[];
+  totalItems: number;
+  totalAmount: number;
+  cash: number;
+  mpesa: number;
+  debt: number;
+}
+
+export interface AssignedLocation {
+  name: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+}
+
+export interface User {
+  id: string;
+  phone: string;
+  password: string;
+  role: UserRole;
+  employeeId?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface Employee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  initials: string;
+  role: EmpRole;
+  department: string;
+  phone: string;
+  email: string;
+  status: EmpStatus;
+  online: boolean;
+  assignedArea: string;
+  assignedLocation: AssignedLocation;
+  lastKnownLocation: {
+    latitude: number;
+    longitude: number;
+    name: string;
+    timestamp: string;
+  };
+  salary: { base: number; currency: "KES" };
+  targets: { daily: number; monthly: number };
+  rating: number;
+  joinDate: string;
+  joinDateISO: string;
+  createdAt: string;
+  createdBy: string;
+  lastPasswordUpdate?: string;
+}
+
+export interface Report {
+  id: string;
+  employeeId: string;
+  date: string;
+  dateISO: string;
+  dayName: string;
+  shortDate: string;
+  salesBreakdown: SalesBreakdown;
+  sales: number;
+  totalSalesKES: number;
+  customersReached: number;
+  samplersGiven: number;
+  notes: string;
+  location: string;
+  coords: { latitude: number; longitude: number } | null;
+  photoUri: string | null;
+  submitted: boolean;
+  submittedAt: string | null;
+  lateFlag: boolean;
+  approved: boolean;
+  flagged: boolean;
+  createdAt: string;
+}
+
+export interface CheckIn {
+  id: string;
+  employeeId: string;
+  coords: { latitude: number; longitude: number; accuracy: number };
+  locationName: string;
+  checkInTime: string;
+  checkOutTime: string | null;
+  status: "checked-in" | "checked-out";
+  date: string;
+  withinRadius: boolean;
+}
+
+export interface PayrollRecord {
+  id: string;
+  employeeId: string;
+  period: { month: string; year: string; label: string };
+  baseSalary: number;
+  bonuses: { salesBonus: number; performanceBonus: number };
+  allowances: { label: string; amount: number }[];
+  deductions: { label: string; amount: number }[];
+  attendance: { daysWorked: number; totalDays: number };
+  status: PayStatus;
+  generatedAt: string;
+  paidAt: string | null;
+  notes: string;
+}
+
+// ─── Products constant ────────────────────────────────────────────────────────
+
+export const PRODUCTS: Product[] = [
+  { sku: "hibiscus-powder", name: "Hibiscus Powder", unitPrice: 1000 },
+  { sku: "hibiscus-flower", name: "Hibiscus Flower", unitPrice: 650 },
+  { sku: "hibiscus-teabag", name: "Hibiscus Tea Bag", unitPrice: 650 },
+  { sku: "hibiscus-teacut", name: "Hibiscus Tea Cut", unitPrice: 850 },
+];
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
 const todayISO = (): string => new Date().toISOString().split("T")[0];
 
 const delay = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
-
-const newId = (prefix: string, collection: { id: string }[]): string => {
-  const nums = collection
-    .map((x) => parseInt(x.id.replace(prefix, ""), 10))
-    .filter((n) => !isNaN(n));
-  const next = nums.length ? Math.max(...nums) + 1 : 1;
-  return `${prefix}${String(next).padStart(3, "0")}`;
-};
 
 const toInitials = (fullName: string): string =>
   fullName
@@ -68,14 +205,13 @@ const isoToDayName = (iso: string): string => {
   return d.toLocaleDateString("en-US", { weekday: "long" });
 };
 
-/**
- * Haversine distance in metres between two GPS coordinates.
- */
 export const haversineDistance = (
-  lat1: number, lon1: number,
-  lat2: number, lon2: number
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
 ): number => {
-  const R = 6371000; // Earth radius in metres
+  const R = 6371000;
   const toRad = (d: number) => (d * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
@@ -85,14 +221,138 @@ export const haversineDistance = (
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-/**
- * True if current wall-clock time in EAT (UTC+3) is at or past 19:00.
- */
 const isLateSubmission = (): boolean => {
   const nowUTC = new Date();
   const eatHour = (nowUTC.getUTCHours() + 3) % 24;
   return eatHour >= 19;
 };
+
+// Helper to get last day of month
+const getLastDayOfMonth = (year: number, month: number): number => {
+  return new Date(year, month, 0).getDate();
+};
+
+// ─── Row mappers (DB snake_case → app camelCase) ──────────────────────────────
+
+function mapEmployee(row: any): Employee {
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    fullName: row.full_name,
+    initials: row.initials,
+    role: row.role,
+    department: row.department,
+    phone: row.phone,
+    email: row.email,
+    status: row.status,
+    online: row.online,
+    assignedArea: row.assigned_area,
+    assignedLocation: {
+      name: row.assigned_location_name,
+      latitude: parseFloat(row.assigned_location_lat),
+      longitude: parseFloat(row.assigned_location_lng),
+      radiusMeters: row.assigned_location_radius_m,
+    },
+    lastKnownLocation: {
+      latitude: parseFloat(row.last_known_lat ?? row.assigned_location_lat),
+      longitude: parseFloat(row.last_known_lng ?? row.assigned_location_lng),
+      name: row.last_known_name ?? row.assigned_location_name,
+      timestamp: row.last_known_at ?? row.created_at,
+    },
+    salary: { base: row.base_salary, currency: "KES" },
+    targets: { daily: row.daily_target, monthly: row.monthly_target },
+    rating: parseFloat(row.rating),
+    joinDate: new Date(row.join_date_iso).toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+    joinDateISO: row.join_date_iso,
+    createdAt: row.created_at,
+    createdBy: row.created_by ?? "",
+    lastPasswordUpdate: row.last_password_update,
+  };
+}
+
+function mapReport(row: any, lineItems: any[] = []): Report {
+  const items: ProductLineItem[] = lineItems.map((li) => ({
+    sku: li.sku,
+    qty: li.qty,
+    unitPrice: li.unit_price,
+    subtotal: li.subtotal,
+  }));
+
+  const breakdown: SalesBreakdown = {
+    items,
+    totalItems: row.total_items,
+    totalAmount: row.total_amount_kes,
+    cash: row.cash,
+    mpesa: row.mpesa,
+    debt: row.debt,
+  };
+
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    date: isoToDisplay(row.date_iso),
+    dateISO: row.date_iso,
+    dayName: isoToDayName(row.date_iso),
+    shortDate: isoToShort(row.date_iso),
+    salesBreakdown: breakdown,
+    sales: row.total_items,
+    totalSalesKES: row.total_amount_kes,
+    customersReached: row.customers_reached,
+    samplersGiven: row.samplers_given,
+    notes: row.notes,
+    location: row.location,
+    coords: row.coords_lat
+      ? { latitude: parseFloat(row.coords_lat), longitude: parseFloat(row.coords_lng) }
+      : null,
+    photoUri: row.photo_uri,
+    submitted: row.submitted,
+    submittedAt: row.submitted_at,
+    lateFlag: row.late_flag,
+    approved: row.approved,
+    flagged: row.flagged,
+    createdAt: row.created_at,
+  };
+}
+
+function mapCheckin(row: any): CheckIn {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    coords: {
+      latitude: parseFloat(row.coords_lat),
+      longitude: parseFloat(row.coords_lng),
+      accuracy: parseFloat(row.coords_accuracy ?? 0),
+    },
+    locationName: row.location_name,
+    checkInTime: row.check_in_time,
+    checkOutTime: row.check_out_time,
+    status: row.status,
+    date: row.date,
+    withinRadius: row.within_radius,
+  };
+}
+
+async function hydratePayroll(row: any): Promise<PayrollRecord> {
+  const [{ data: allowances }, { data: deductions }] = await Promise.all([
+    supabase.from("payroll_allowances").select("*").eq("payroll_id", row.id),
+    supabase.from("payroll_deductions").select("*").eq("payroll_id", row.id),
+  ]);
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    period: { month: row.period_month, year: row.period_year, label: row.period_label },
+    baseSalary: row.base_salary,
+    bonuses: { salesBonus: row.sales_bonus, performanceBonus: row.perf_bonus },
+    allowances: (allowances ?? []).map((a: any) => ({ label: a.label, amount: a.amount })),
+    deductions: (deductions ?? []).map((d: any) => ({ label: d.label, amount: d.amount })),
+    attendance: { daysWorked: row.days_worked, totalDays: row.total_days },
+    status: row.status,
+    generatedAt: row.generated_at,
+    paidAt: row.paid_at,
+    notes: row.notes,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  SECTION A: AUTHENTICATION
@@ -107,16 +367,41 @@ export interface LoginResult {
 
 export const login = async (phone: string, password: string): Promise<LoginResult> => {
   await delay(400);
-  const user = db.users.find(
-    (u) => u.phone === phone && u.password === password && u.active
-  );
-  if (!user) {
-    return { success: false, user: null, employee: null, error: "Invalid credentials" };
+
+  const { data, error } = await supabase.rpc("login_with_phone", {
+    p_phone: phone,
+    p_password: password,
+  });
+
+  if (error || !data?.success) {
+    return {
+      success: false,
+      user: null,
+      employee: null,
+      error: data?.error ?? "Invalid credentials",
+    };
   }
-  const employee = user.employeeId
-    ? (db.employees.find((e) => e.id === user.employeeId) ?? null)
-    : null;
+
+  const u = data.user;
+  const e = data.employee;
+
+  const user: User = {
+    id: u.id,
+    phone: u.phone,
+    password: "",
+    role: u.role,
+    employeeId: u.employee_id ?? undefined,
+    active: u.active,
+    createdAt: u.created_at,
+  };
+
+  const employee = e ? mapEmployee(e) : null;
+
   return { success: true, user, employee };
+};
+
+export const logout = async (): Promise<void> => {
+  await supabase.auth.signOut();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,20 +410,28 @@ export const login = async (phone: string, password: string): Promise<LoginResul
 
 export const getEmployees = async (statusFilter?: EmpStatus): Promise<Employee[]> => {
   await delay();
-  const list = statusFilter
-    ? db.employees.filter((e) => e.status === statusFilter)
-    : [...db.employees];
+  let q = supabase.from("employees").select("*").order("full_name");
+  if (statusFilter) q = q.eq("status", statusFilter);
+  const { data, error } = await q;
+  if (error) throw error;
+  const list = (data ?? []).map(mapEmployee);
   return list.sort((a, b) => a.fullName.localeCompare(b.fullName));
 };
 
 export const getEmployeeById = async (id: string): Promise<Employee | null> => {
   await delay();
-  return db.employees.find((e) => e.id === id) ?? null;
+  const { data } = await supabase.from("employees").select("*").eq("id", id).single();
+  return data ? mapEmployee(data) : null;
 };
 
 export const getOnlineEmployees = async (): Promise<Employee[]> => {
   await delay();
-  return db.employees.filter((e) => e.online && e.status === "active");
+  const { data } = await supabase
+    .from("employees")
+    .select("*")
+    .eq("online", true)
+    .eq("status", "active");
+  return (data ?? []).map(mapEmployee);
 };
 
 export interface CreateEmployeeInput {
@@ -160,252 +453,359 @@ export interface CreateEmployeeInput {
   assignedLocationRadius?: number;
 }
 
+// export const createEmployee = async (
+//   input: CreateEmployeeInput
+// ): Promise<{ employee: Employee; user: User }> => {
+//   await delay(300);
+
+//   const fullName = `${input.firstName} ${input.lastName}`;
+//   const now = new Date().toISOString();
+
+//   const { count } = await supabase.from("employees").select("*", { count: "exact", head: true });
+//   const empId = `e${String((count ?? 0) + 1).padStart(3, "0")}`;
+//   const initials = toInitials(fullName);
+
+//   const empRow = {
+//     id: empId,
+//     first_name: input.firstName,
+//     last_name: input.lastName,
+//     full_name: fullName,
+//     initials,
+//     role: input.role,
+//     department: input.department ?? "Field Sales",
+//     phone: input.phone,
+//     email: input.email,
+//     status: "active" as EmpStatus,
+//     online: false,
+//     assigned_area: input.assignedArea,
+//     assigned_location_name: input.assignedLocationName,
+//     assigned_location_lat: input.assignedLocationLat,
+//     assigned_location_lng: input.assignedLocationLng,
+//     assigned_location_radius_m: input.assignedLocationRadius ?? 500,
+//     last_known_lat: input.assignedLocationLat,
+//     last_known_lng: input.assignedLocationLng,
+//     last_known_name: input.assignedLocationName,
+//     last_known_at: now,
+//     base_salary: input.baseSalary,
+//     daily_target: input.dailyTarget,
+//     monthly_target: input.monthlyTarget,
+//     rating: 0,
+//     join_date_iso: now.split("T")[0],
+//     created_at: now,
+//     created_by: input.createdBy,
+//   };
+
+//   const { data: empData, error: empErr } = await supabase
+//     .from("employees")
+//     .insert(empRow)
+//     .select()
+//     .single();
+//   if (empErr) throw empErr;
+
+//   const { data: userData, error: userErr } = await supabase
+//     .from("app_users")
+//     .insert({
+//       phone: input.phone,
+//       password_hash: input.password,
+//       role: "employee",
+//       employee_id: empId,
+//       active: true,
+//       created_at: now,
+//     })
+//     .select()
+//     .single();
+//   if (userErr) throw userErr;
+
+//   const employee = mapEmployee(empData);
+//   const user: User = {
+//     id: userData.id,
+//     phone: userData.phone,
+//     password: input.password,
+//     role: userData.role,
+//     employeeId: empId,
+//     active: userData.active,
+//     createdAt: userData.created_at,
+//   };
+
+//   return { employee, user };
+// };
 export const createEmployee = async (
   input: CreateEmployeeInput
 ): Promise<{ employee: Employee; user: User }> => {
   await delay(300);
 
   const fullName = `${input.firstName} ${input.lastName}`;
-  const empId    = newId("e", db.employees);
-  const userId   = newId("u", db.users);
-  const now      = new Date().toISOString();
+  const now = new Date().toISOString();
 
-  const employee: Employee = {
-    id: empId,
-    firstName:   input.firstName,
-    lastName:    input.lastName,
-    fullName,
-    initials:    toInitials(fullName),
-    role:        input.role,
-    department:  input.department ?? "Field Sales",
-    phone:       input.phone,
-    email:       input.email,
-    status:      "active",
-    online:      false,
-    assignedArea: input.assignedArea,
-    assignedLocation: {
-      name:         input.assignedLocationName,
-      latitude:     input.assignedLocationLat,
-      longitude:    input.assignedLocationLng,
-      radiusMeters: input.assignedLocationRadius ?? 500,
-    },
-    lastKnownLocation: {
-      latitude:  input.assignedLocationLat,
-      longitude: input.assignedLocationLng,
-      name:      input.assignedLocationName,
-      timestamp: now,
-    },
-    salary:  { base: input.baseSalary, currency: "KES" },
-    targets: { daily: input.dailyTarget, monthly: input.monthlyTarget },
-    rating:  0,
-    joinDate:    new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-    joinDateISO: now.split("T")[0],
-    createdAt:   now,
-    createdBy:   input.createdBy,
+  console.log('🔵 Creating employee:', { name: fullName, phone: input.phone });
+
+  // Generate ID
+  const { count, error: countError } = await supabase
+    .from("employees")
+    .select("*", { count: "exact", head: true });
     
-  };
-
-  const user: User = {
-    id:         userId,
-    phone:      input.phone,
-    password:   input.password,
-    role:       "employee",
-    employeeId: empId,
-    active:     true,
-    createdAt:  now,
-  };
-
-  db.employees.push(employee);
-  db.users.push(user);
-
-  return { employee, user };
-};
-
-
-export const activateEmployee = async (id: string): Promise<boolean> => {
-  await delay(200);
-  
-  // Find and update employee
-  const empIdx = db.employees.findIndex((e) => e.id === id);
-  if (empIdx === -1) return false;
-  
-  // Update employee status to active
-  db.employees[empIdx].status = "active";
-  
-  // Find and activate the associated user account
-  const userIdx = db.users.findIndex((u) => u.employeeId === id);
-  if (userIdx !== -1) {
-    db.users[userIdx].active = true;
+  if (countError) {
+    console.error('❌ Count error:', countError);
+    throw new Error(`Count failed: ${countError.message}`);
   }
   
-  return true;
-};
+  const empId = `e${String((count ?? 0) + 1).padStart(3, "0")}`;
+  const initials = toInitials(fullName);
 
-/**
- * Update employee with optional password change
- * Tracks last password update timestamp
- */
-export const updateEmployeeWithPassword = async (
+  console.log('🟢 Generated ID:', empId);
+
+  const empRow = {
+    id: empId,
+    first_name: input.firstName,
+    last_name: input.lastName,
+    // full_name: fullName,
+    initials,
+    role: input.role,
+    department: input.department ?? "Field Sales",
+    phone: input.phone,
+    email: input.email,
+    status: "active" as EmpStatus,
+    online: false,
+    assigned_area: input.assignedArea,
+    assigned_location_name: input.assignedLocationName,
+    assigned_location_lat: input.assignedLocationLat,
+    assigned_location_lng: input.assignedLocationLng,
+    assigned_location_radius_m: input.assignedLocationRadius ?? 500,
+    last_known_lat: input.assignedLocationLat,
+    last_known_lng: input.assignedLocationLng,
+    last_known_name: input.assignedLocationName,
+    last_known_at: now,
+    base_salary: input.baseSalary,
+    daily_target: input.dailyTarget,
+    monthly_target: input.monthlyTarget,
+    rating: 0,
+    join_date_iso: now.split("T")[0],
+    created_at: now,
+    created_by: input.createdBy,
+  };
+
+  console.log('📝 Inserting employee row...');
+
+  const { data: empData, error: empErr } = await supabase
+    .from("employees")
+    .insert(empRow)
+    .select()
+    .single();
+    
+  if (empErr) {
+    console.error('❌ Employee insert error:', {
+      code: empErr.code,
+      message: empErr.message,
+      details: empErr.details,
+      hint: empErr.hint
+    });
+    throw new Error(`Employee insert failed: ${empErr.message}`);
+  }
+
+  console.log('✅ Employee inserted:', empData.id);
+
+  // Create app_user row
+  console.log('📝 Inserting app_user row...');
+  
+  const { data: userData, error: userErr } = await supabase
+    .from("app_users")
+    .insert({
+      phone: input.phone,
+      password_hash: input.password,
+      role: "employee",
+      employee_id: empId,
+      active: true,
+      created_at: now,
+    })
+    .select()
+    .single();
+    
+  if (userErr) {
+    console.error('❌ App user insert error:', {
+      code: userErr.code,
+      message: userErr.message,
+      details: userErr.details,
+      hint: userErr.hint
+    });
+    
+    // Try to rollback employee insert
+    await supabase.from("employees").delete().eq("id", empId);
+    throw new Error(`User insert failed: ${userErr.message}`);
+  }
+
+  console.log('✅ App user inserted:', userData.id);
+
+  const employee = mapEmployee(empData);
+  const user: User = {
+    id: userData.id,
+    phone: userData.phone,
+    password: input.password,
+    role: userData.role,
+    employeeId: empId,
+    active: userData.active,
+    createdAt: userData.created_at,
+  };
+
+  console.log('🎉 Employee created successfully!');
+  return { employee, user };
+};
+export const updateEmployee = async (
   id: string,
-  updates: Partial<Pick<Employee,
-    "firstName" | "lastName" | "role" | "phone" | "email" |
-    "assignedArea" | "status" | "rating" | "online"
-  > & {
-    baseSalary?: number;
-    dailyTarget?: number;
-    monthlyTarget?: number;
-    password?: string;
+  updates: Partial<{
+    firstName: string;
+    lastName: string;
+    role: EmpRole;
+    phone: string;
+    email: string;
+    assignedArea: string;
+    status: EmpStatus;
+    rating: number;
+    online: boolean;
+    baseSalary: number;
+    dailyTarget: number;
+    monthlyTarget: number;
+    password: string;
   }>
 ): Promise<Employee | null> => {
   await delay(200);
-  const idx = db.employees.findIndex((e) => e.id === id);
-  if (idx === -1) return null;
 
-  const emp = { ...db.employees[idx] };
-  
-  // Update basic fields
-  if (updates.firstName !== undefined) emp.firstName = updates.firstName;
-  if (updates.lastName !== undefined) emp.lastName = updates.lastName;
+  const patch: Record<string, any> = {};
+  if (updates.firstName !== undefined) patch.first_name = updates.firstName;
+  if (updates.lastName !== undefined) patch.last_name = updates.lastName;
+  if (updates.role !== undefined) patch.role = updates.role;
+  if (updates.phone !== undefined) patch.phone = updates.phone;
+  if (updates.email !== undefined) patch.email = updates.email;
+  if (updates.assignedArea !== undefined) patch.assigned_area = updates.assignedArea;
+  if (updates.status !== undefined) patch.status = updates.status;
+  if (updates.rating !== undefined) patch.rating = updates.rating;
+  if (updates.online !== undefined) patch.online = updates.online;
+  if (updates.baseSalary !== undefined) patch.base_salary = updates.baseSalary;
+  if (updates.dailyTarget !== undefined) patch.daily_target = updates.dailyTarget;
+  if (updates.monthlyTarget !== undefined) patch.monthly_target = updates.monthlyTarget;
+
   if (updates.firstName !== undefined || updates.lastName !== undefined) {
-    emp.fullName = `${emp.firstName} ${emp.lastName}`;
-    emp.initials = toInitials(emp.fullName);
-  }
-  if (updates.role !== undefined) emp.role = updates.role;
-  if (updates.phone !== undefined) emp.phone = updates.phone;
-  if (updates.email !== undefined) emp.email = updates.email;
-  if (updates.assignedArea !== undefined) emp.assignedArea = updates.assignedArea;
-  if (updates.status !== undefined) emp.status = updates.status;
-  if (updates.rating !== undefined) emp.rating = updates.rating;
-  if (updates.online !== undefined) emp.online = updates.online;
-  if (updates.baseSalary !== undefined) emp.salary.base = updates.baseSalary;
-  if (updates.dailyTarget !== undefined) emp.targets.daily = updates.dailyTarget;
-  if (updates.monthlyTarget !== undefined) emp.targets.monthly = updates.monthlyTarget;
-  
-  // Handle password update with timestamp tracking
-  if (updates.password !== undefined && updates.password.length >= 6) {
-    // Add lastPasswordUpdate field to employee (you may need to add this to your Employee interface)
-    (emp as any).lastPasswordUpdate = new Date().toISOString();
-    
-    // Update user password
-    const userIdx = db.users.findIndex((u) => u.employeeId === id);
-    if (userIdx !== -1) {
-      db.users[userIdx].password = updates.password;
-    }
+    const cur = await getEmployeeById(id);
+    const fn = updates.firstName ?? cur?.firstName ?? "";
+    const ln = updates.lastName ?? cur?.lastName ?? "";
+    // patch.full_name = `${fn} ${ln}`;
+    patch.initials = toInitials(patch.full_name);
   }
 
-  db.employees[idx] = emp;
-  return emp;
+  if (updates.password !== undefined && updates.password.length >= 6) {
+    patch.last_password_update = new Date().toISOString();
+    await supabase.rpc("update_employee_password", {
+      p_employee_id: id,
+      p_new_password: updates.password,
+    });
+  }
+
+  const { data, error } = await supabase
+    .from("employees")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data ? mapEmployee(data) : null;
 };
 
-/**
- * Check if employee can update password (once every 30 days)
- */
-export const canUpdatePassword = async (employeeId: string): Promise<{ canUpdate: boolean; daysRemaining: number; lastUpdate: string | null }> => {
-  await delay();
-  
-  const emp = db.employees.find((e) => e.id === employeeId);
-  if (!emp) {
-    return { canUpdate: false, daysRemaining: 0, lastUpdate: null };
+export const updateEmployeeWithPassword = updateEmployee;
+
+export const deactivateEmployee = async (id: string): Promise<boolean> => {
+  await delay(200);
+  const { error } = await supabase
+    .from("employees")
+    .update({ status: "inactive", online: false })
+    .eq("id", id);
+  if (!error) {
+    await supabase.from("app_users").update({ active: false }).eq("employee_id", id);
   }
-  
-  // Get last password update from employee (you may need to add this field)
-  const lastPasswordUpdate = (emp as any).lastPasswordUpdate;
-  
-  if (!lastPasswordUpdate) {
+  return !error;
+};
+
+export const activateEmployee = async (id: string): Promise<boolean> => {
+  await delay(200);
+  const { error } = await supabase
+    .from("employees")
+    .update({ status: "active" })
+    .eq("id", id);
+  if (!error) {
+    await supabase.from("app_users").update({ active: true }).eq("employee_id", id);
+  }
+  return !error;
+};
+
+export const canUpdatePassword = async (
+  employeeId: string
+): Promise<{ canUpdate: boolean; daysRemaining: number; lastUpdate: string | null }> => {
+  await delay();
+  const { data } = await supabase
+    .from("employees")
+    .select("last_password_update")
+    .eq("id", employeeId)
+    .single();
+
+  if (!data?.last_password_update) {
     return { canUpdate: true, daysRemaining: 0, lastUpdate: null };
   }
-  
-  const lastUpdate = new Date(lastPasswordUpdate);
+
+  const lastUpdate = new Date(data.last_password_update);
   const now = new Date();
   const daysSinceUpdate = Math.floor((now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24));
   const canUpdate = daysSinceUpdate >= 30;
   const daysRemaining = canUpdate ? 0 : 30 - daysSinceUpdate;
-  
-  return { canUpdate, daysRemaining, lastUpdate: lastPasswordUpdate };
-};
 
-export const updateEmployee = async (
-  id: string,
-  updates: Partial<Pick<Employee,
-    "firstName" | "lastName" | "role" | "phone" | "email" |
-    "assignedArea" | "status" | "rating" | "online"
-  > & {
-    baseSalary?: number;
-    dailyTarget?: number;
-    monthlyTarget?: number;
-    password?: string;
-  }>
-): Promise<Employee | null> => {
-  await delay(200);
-  const idx = db.employees.findIndex((e) => e.id === id);
-  if (idx === -1) return null;
-
-  const emp = { ...db.employees[idx] };
-  
-  // Update basic fields
-  if (updates.firstName !== undefined) emp.firstName = updates.firstName;
-  if (updates.lastName !== undefined) emp.lastName = updates.lastName;
-  if (updates.firstName !== undefined || updates.lastName !== undefined) {
-    emp.fullName = `${emp.firstName} ${emp.lastName}`;
-    emp.initials = toInitials(emp.fullName);
-  }
-  if (updates.role !== undefined) emp.role = updates.role;
-  if (updates.phone !== undefined) emp.phone = updates.phone;
-  if (updates.email !== undefined) emp.email = updates.email;
-  if (updates.assignedArea !== undefined) emp.assignedArea = updates.assignedArea;
-  if (updates.status !== undefined) emp.status = updates.status;
-  if (updates.rating !== undefined) emp.rating = updates.rating;
-  if (updates.online !== undefined) emp.online = updates.online;
-  if (updates.baseSalary !== undefined) emp.salary.base = updates.baseSalary;
-  if (updates.dailyTarget !== undefined) emp.targets.daily = updates.dailyTarget;
-  if (updates.monthlyTarget !== undefined) emp.targets.monthly = updates.monthlyTarget;
-  
-  // Handle password update if provided (with tracking)
-  if (updates.password !== undefined && updates.password.length >= 6) {
-    (emp as any).lastPasswordUpdate = new Date().toISOString();
-    
-    // Update user password
-    const userIdx = db.users.findIndex((u) => u.employeeId === id);
-    if (userIdx !== -1) {
-      db.users[userIdx].password = updates.password;
-    }
-  }
-
-  db.employees[idx] = emp;
-  return emp;
-};
-
-export const deactivateEmployee = async (id: string): Promise<boolean> => {
-  await delay(200);
-  const empIdx = db.employees.findIndex((e) => e.id === id);
-  if (empIdx === -1) return false;
-  db.employees[empIdx].status = "inactive";
-  db.employees[empIdx].online = false;
-
-  const userIdx = db.users.findIndex((u) => u.employeeId === id);
-  if (userIdx !== -1) db.users[userIdx].active = false;
-  return true;
+  return { canUpdate, daysRemaining, lastUpdate: data.last_password_update };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  SECTION C: REPORTS
 // ─────────────────────────────────────────────────────────────────────────────
 
+async function fetchReportsWithLineItems(query: any): Promise<Report[]> {
+  const { data: rows, error } = await query;
+  if (error) throw error;
+  if (!rows?.length) return [];
+
+  const ids = rows.map((r: any) => r.id);
+  const { data: lineItems } = await supabase
+    .from("report_line_items")
+    .select("*")
+    .in("report_id", ids);
+
+  const liMap: Record<string, any[]> = {};
+  for (const li of lineItems ?? []) {
+    (liMap[li.report_id] ??= []).push(li);
+  }
+
+  return rows.map((r: any) => mapReport(r, liMap[r.id] ?? []));
+}
+
 export const getAllReports = async (): Promise<Report[]> => {
   await delay();
-  return [...db.reports].sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+  const reports = await fetchReportsWithLineItems(
+    supabase.from("reports").select("*").order("date_iso", { ascending: false })
+  );
+  return [...reports].sort((a, b) => b.dateISO.localeCompare(a.dateISO));
 };
 
 export const getReportsByEmployee = async (employeeId: string): Promise<Report[]> => {
   await delay();
-  return db.reports
-    .filter((r) => r.employeeId === employeeId)
-    .sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+  const reports = await fetchReportsWithLineItems(
+    supabase
+      .from("reports")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .order("date_iso", { ascending: false })
+  );
+  return reports.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
 };
 
 export const getReportsByDate = async (dateISO: string): Promise<Report[]> => {
   await delay();
-  return db.reports.filter((r) => r.dateISO === dateISO);
+  return fetchReportsWithLineItems(
+    supabase.from("reports").select("*").eq("date_iso", dateISO)
+  );
 };
 
 export const getReportsByDateRange = async (
@@ -413,12 +813,16 @@ export const getReportsByDateRange = async (
   toISO: string
 ): Promise<Report[]> => {
   await delay();
-  return db.reports
-    .filter((r) => r.dateISO >= fromISO && r.dateISO <= toISO)
-    .sort((a, b) => b.dateISO.localeCompare(a.dateISO));
+  const reports = await fetchReportsWithLineItems(
+    supabase
+      .from("reports")
+      .select("*")
+      .gte("date_iso", fromISO)
+      .lte("date_iso", toISO)
+      .order("date_iso", { ascending: false })
+  );
+  return reports.sort((a, b) => b.dateISO.localeCompare(a.dateISO));
 };
-
-// ── AddReport Input ───────────────────────────────────────────────────────────
 
 export interface ProductEntry {
   sku: ProductSKU;
@@ -427,9 +831,7 @@ export interface ProductEntry {
 
 export interface AddReportInput {
   employeeId: string;
-  /** Product quantities per SKU */
   products: ProductEntry[];
-  /** Payment breakdown — must satisfy: cash + mpesa + debt === totalAmount */
   cash: number;
   mpesa: number;
   debt: number;
@@ -438,8 +840,8 @@ export interface AddReportInput {
   notes: string;
   location: string;
   coords?: { latitude: number; longitude: number } | null;
-  photoUri: string;   // required — URI of sales photo proof
-  dateISO?: string;   // defaults to today
+  photoUri: string | null;
+  dateISO?: string;
 }
 
 export interface AddReportResult {
@@ -448,40 +850,26 @@ export interface AddReportResult {
   error?: string;
 }
 
-/**
- * Employee submits a daily report.
- *
- * Validation:
- *  1. Photo proof must be provided.
- *  2. At least one product must have qty > 0.
- *  3. cash + mpesa + debt must equal the computed totalAmount.
- *  4. Flags late submission (after 19:00 EAT).
- *  5. Auto-flags low-sales reports (totalItems < 5).
- */
 export const addReport = async (input: AddReportInput): Promise<AddReportResult> => {
   await delay(300);
 
-  // ── 1. Photo proof ────────────────────────────────────────────────────────
-  if (!input.photoUri || input.photoUri.trim() === "") {
-    return { success: false, error: "A sales photo is required before submitting." };
-  }
+  // if (!input.photoUri || input.photoUri.trim() === "") {
+  //   return { success: false, error: "A sales photo is required before submitting." };
+  // }
 
-  // ── 2. Product entries ────────────────────────────────────────────────────
   const nonZeroProducts = input.products.filter((p) => p.qty > 0);
   if (nonZeroProducts.length === 0) {
     return { success: false, error: "Enter at least one product quantity." };
   }
 
-  // ── 3. Build line items & compute totals ──────────────────────────────────
   const items: ProductLineItem[] = nonZeroProducts.map(({ sku, qty }) => {
     const product = PRODUCTS.find((p) => p.sku === sku)!;
     return { sku, qty, unitPrice: product.unitPrice, subtotal: product.unitPrice * qty };
   });
 
-  const totalItems  = items.reduce((s, l) => s + l.qty, 0);
+  const totalItems = items.reduce((s, l) => s + l.qty, 0);
   const totalAmount = items.reduce((s, l) => s + l.subtotal, 0);
 
-  // ── 4. Payment validation ─────────────────────────────────────────────────
   const paymentTotal = input.cash + input.mpesa + input.debt;
   if (paymentTotal !== totalAmount) {
     return {
@@ -490,68 +878,49 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
     };
   }
 
-  const salesBreakdown: SalesBreakdown = {
-    items,
-    totalItems,
-    totalAmount,
-    cash:  input.cash,
-    mpesa: input.mpesa,
-    debt:  input.debt,
-  };
-
-  // ── 5. Late submission flag ───────────────────────────────────────────────
   const lateFlag = isLateSubmission();
-
-  // ── 6. Low-sales flag ─────────────────────────────────────────────────────
-  const flagged = totalItems < 5;
-
   const dateISO = input.dateISO ?? todayISO();
-  const now     = new Date().toISOString();
-  const id      = newId("r", db.reports);
+  const now = new Date().toISOString();
 
-  const report: Report = {
-    id,
-    employeeId: input.employeeId,
-    date:       isoToDisplay(dateISO),
-    dateISO,
-    dayName:    isoToDayName(dateISO),
-    shortDate:  isoToShort(dateISO),
-    salesBreakdown,
-    sales:         totalItems,
-    totalSalesKES: totalAmount,
-    customersReached: input.customersReached,
-    samplersGiven:    input.samplersGiven,
-    notes:    input.notes,
-    location: input.location,
-    coords:   input.coords ?? null,
-    photoUri: input.photoUri,
-    submitted:   true,
-    submittedAt: now,
-    lateFlag,
-    approved: false,
-    flagged,
-    createdAt: now,
-  };
+  const { data, error } = await supabase.rpc("submit_report", {
+    p_employee_id: input.employeeId,
+    p_date_iso: dateISO,
+    p_products: nonZeroProducts,
+    p_cash: input.cash,
+    p_mpesa: input.mpesa,
+    p_debt: input.debt,
+    p_customers: input.customersReached,
+    p_samplers: input.samplersGiven,
+    p_notes: input.notes,
+    p_location: input.location,
+    p_coords_lat: input.coords?.latitude ?? null,
+    p_coords_lng: input.coords?.longitude ?? null,
+    p_photo_uri: input.photoUri,
+  });
 
-  db.reports.push(report);
+  if (error) return { success: false, error: error.message };
+  if (!data?.success) return { success: false, error: data?.error };
+
+  const report = (await getReportsByEmployee(input.employeeId)).find(
+    (r) => r.id === data.reportId
+  );
+
   return { success: true, report };
 };
 
 export const approveReport = async (reportId: string): Promise<boolean> => {
   await delay(200);
-  const idx = db.reports.findIndex((r) => r.id === reportId);
-  if (idx === -1) return false;
-  db.reports[idx].approved = true;
-  db.reports[idx].flagged  = false;
-  return true;
+  const { data } = await supabase.rpc("approve_report", { p_report_id: reportId });
+  return !!data;
 };
 
 export const flagReport = async (reportId: string, flagged: boolean): Promise<boolean> => {
   await delay(100);
-  const idx = db.reports.findIndex((r) => r.id === reportId);
-  if (idx === -1) return false;
-  db.reports[idx].flagged = flagged;
-  return true;
+  const { data } = await supabase.rpc("flag_report", {
+    p_report_id: reportId,
+    p_flagged: flagged,
+  });
+  return !!data;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -581,85 +950,137 @@ export const getMonthlyAggregates = async (
   year: string
 ): Promise<EmployeeMonthlyAggregate[]> => {
   await delay();
+
   const monthIndex = [
-    "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec",
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ].indexOf(month);
   if (monthIndex === -1) return [];
-  const prefix = `${year}-${String(monthIndex + 1).padStart(2, "0")}-`;
 
-  const periodReports = db.reports.filter((r) => r.dateISO.startsWith(prefix));
+  const monthNum = String(monthIndex + 1).padStart(2, "0");
+  const monthStart = `${year}-${monthNum}-01`;
+  const lastDay = getLastDayOfMonth(parseInt(year), monthIndex + 1);
+  const monthEnd = `${year}-${monthNum}-${String(lastDay).padStart(2, "0")}`;
 
-  return db.employees
-    .filter((e) => e.status === "active")
-    .map((emp) => {
-      const empReports = periodReports.filter((r) => r.employeeId === emp.id);
-      if (!empReports.length) return null;
+  const { data: periodReports } = await supabase
+    .from("reports")
+    .select("*")
+    .gte("date_iso", monthStart)
+    .lte("date_iso", monthEnd);
 
-      const totalSales     = empReports.reduce((s, r) => s + r.sales, 0);
-      const totalSalesKES  = empReports.reduce((s, r) => s + r.totalSalesKES, 0);
-      const totalCash      = empReports.reduce((s, r) => s + r.salesBreakdown.cash, 0);
-      const totalMpesa     = empReports.reduce((s, r) => s + r.salesBreakdown.mpesa, 0);
-      const totalDebt      = empReports.reduce((s, r) => s + r.salesBreakdown.debt, 0);
-      const totalCustomers = empReports.reduce((s, r) => s + r.customersReached, 0);
-      const totalSamplers  = empReports.reduce((s, r) => s + r.samplersGiven, 0);
-      const daysReported   = empReports.length;
-      const avgSalesPerDay = daysReported
-        ? parseFloat((totalSales / daysReported).toFixed(1))
-        : 0;
-      const target    = emp.targets.monthly;
-      const achievePct = Math.round((totalSales / target) * 100);
+  if (!periodReports?.length) return [];
 
-      const best = empReports.reduce(
-        (b, r) => (r.sales > b.sales ? r : b),
-        empReports[0]
-      );
+  const reportIds = periodReports.map((r) => r.id);
+  const { data: lineItems } = await supabase
+    .from("report_line_items")
+    .select("*")
+    .in("report_id", reportIds);
 
-      const mid     = Math.floor(daysReported / 2);
-      const sorted  = [...empReports].sort((a, b) => a.dateISO.localeCompare(b.dateISO));
-      const firstAvg = sorted.slice(0, mid).reduce((s, r) => s + r.sales, 0) / (mid || 1);
-      const lastAvg  = sorted.slice(mid).reduce((s, r) => s + r.sales, 0) / (daysReported - mid || 1);
-      const trend: "up" | "down" | "flat" =
-        lastAvg > firstAvg * 1.05 ? "up"
-        : lastAvg < firstAvg * 0.95 ? "down"
-        : "flat";
+  const liMap: Record<string, any[]> = {};
+  for (const li of lineItems ?? []) {
+    (liMap[li.report_id] ??= []).push(li);
+  }
 
-      return {
-        employee: emp,
-        totalSales, totalSalesKES,
-        totalCash, totalMpesa, totalDebt,
-        totalCustomers, totalSamplers,
-        daysReported, target, achievePct, avgSalesPerDay, trend,
-        bestDayISO: best.dateISO,
-        bestDayDisplay: best.shortDate,
-      } as EmployeeMonthlyAggregate;
-    })
-    .filter(Boolean) as EmployeeMonthlyAggregate[];
+  const employees = await getEmployees();
+  const empMap = Object.fromEntries(employees.map((e) => [e.id, e]));
+
+  const results: EmployeeMonthlyAggregate[] = [];
+
+  for (const emp of employees.filter((e) => e.status === "active")) {
+    const empReports = periodReports.filter((r) => r.employee_id === emp.id);
+    if (!empReports.length) continue;
+
+    let totalSales = 0;
+    let totalSalesKES = 0;
+    let totalCash = 0;
+    let totalMpesa = 0;
+    let totalDebt = 0;
+    let totalCustomers = 0;
+    let totalSamplers = 0;
+
+    for (const r of empReports) {
+      const items = liMap[r.id] ?? [];
+      const reportSales = items.reduce((s, li) => s + li.qty, 0);
+      const reportKES = items.reduce((s, li) => s + li.subtotal, 0);
+      totalSales += reportSales;
+      totalSalesKES += reportKES;
+      totalCash += r.cash ?? 0;
+      totalMpesa += r.mpesa ?? 0;
+      totalDebt += r.debt ?? 0;
+      totalCustomers += r.customers_reached ?? 0;
+      totalSamplers += r.samplers_given ?? 0;
+    }
+
+    const daysReported = empReports.length;
+    const avgSalesPerDay = daysReported
+      ? parseFloat((totalSales / daysReported).toFixed(1))
+      : 0;
+    const target = emp.targets.monthly;
+    const achievePct = Math.round((totalSales / target) * 100);
+
+    const best = empReports.reduce((b, r) => {
+      const items = liMap[r.id] ?? [];
+      const sales = items.reduce((s, li) => s + li.qty, 0);
+      const bestSales = liMap[b.id]?.reduce((s, li) => s + li.qty, 0) ?? 0;
+      return sales > bestSales ? r : b;
+    }, empReports[0]);
+
+    const sorted = [...empReports].sort((a, b) => a.date_iso.localeCompare(b.date_iso));
+    const mid = Math.floor(daysReported / 2);
+    const firstHalfSales = sorted.slice(0, mid).reduce((s, r) => {
+      const items = liMap[r.id] ?? [];
+      return s + items.reduce((sum, li) => sum + li.qty, 0);
+    }, 0);
+    const secondHalfSales = sorted.slice(mid).reduce((s, r) => {
+      const items = liMap[r.id] ?? [];
+      return s + items.reduce((sum, li) => sum + li.qty, 0);
+    }, 0);
+    const firstAvg = firstHalfSales / (mid || 1);
+    const lastAvg = secondHalfSales / (daysReported - mid || 1);
+    const trend: "up" | "down" | "flat" =
+      lastAvg > firstAvg * 1.05 ? "up"
+      : lastAvg < firstAvg * 0.95 ? "down"
+      : "flat";
+
+    results.push({
+      employee: emp,
+      totalSales,
+      totalSalesKES,
+      totalCash,
+      totalMpesa,
+      totalDebt,
+      totalCustomers,
+      totalSamplers,
+      daysReported,
+      target,
+      achievePct,
+      avgSalesPerDay,
+      trend,
+      bestDayISO: best.date_iso,
+      bestDayDisplay: isoToShort(best.date_iso),
+    });
+  }
+
+  return results.filter(Boolean);
 };
 
 export interface EmployeeYearlyAggregate {
   employee: Employee;
   year: string;
-
   totalSales: number;
   totalSalesKES: number;
   totalCash: number;
   totalMpesa: number;
   totalDebt: number;
-
   totalCustomers: number;
   totalSamplers: number;
-
   monthsReported: number;
-
   target: number;
   achievePct: number;
-
   avgSalesPerMonth: number;
-
   trend: "up" | "down" | "flat";
-
   bestMonth: string;
-  bestMonthDisplay: string; 
+  bestMonthDisplay: string;
 }
 
 export const getYearlyAggregates = async (
@@ -668,140 +1089,131 @@ export const getYearlyAggregates = async (
   await delay();
 
   let years: string[];
-
   if (year) {
-    years = [year]; // single year mode
+    years = [year];
   } else {
     const currentYear = new Date().getFullYear();
-    years = Array.from({ length: 5 }, (_, i) => String(currentYear - i)); // last 5 years
+    years = Array.from({ length: 5 }, (_, i) => String(currentYear - i));
   }
 
+  const employees = await getEmployees();
+  const empMap = Object.fromEntries(employees.map((e) => [e.id, e]));
   const results: EmployeeYearlyAggregate[] = [];
 
   for (const yr of years) {
-    const yearReports = db.reports.filter((r) =>
-      r.dateISO.startsWith(yr)
-    );
+    // FIXED: Use date range instead of LIKE
+    const { data: yearReports } = await supabase
+      .from("reports")
+      .select("*")
+      .gte("date_iso", `${yr}-01-01`)
+      .lte("date_iso", `${yr}-12-31`);
 
-    const yearlyData = db.employees
-      .filter((e) => e.status === "active")
-      .map((emp) => {
-        const empReports = yearReports.filter(
-          (r) => r.employeeId === emp.id
-        );
-        if (!empReports.length) return null;
+    if (!yearReports?.length) continue;
 
-        const totalSales = empReports.reduce((s, r) => s + r.sales, 0);
-        const totalSalesKES = empReports.reduce(
-          (s, r) => s + r.totalSalesKES,
-          0
-        );
-        const totalCash = empReports.reduce(
-          (s, r) => s + r.salesBreakdown.cash,
-          0
-        );
-        const totalMpesa = empReports.reduce(
-          (s, r) => s + r.salesBreakdown.mpesa,
-          0
-        );
-        const totalDebt = empReports.reduce(
-          (s, r) => s + r.salesBreakdown.debt,
-          0
-        );
+    const reportIds = yearReports.map((r) => r.id);
+    const { data: lineItems } = await supabase
+      .from("report_line_items")
+      .select("*")
+      .in("report_id", reportIds);
 
-        const totalCustomers = empReports.reduce(
-          (s, r) => s + r.customersReached,
-          0
-        );
-        const totalSamplers = empReports.reduce(
-          (s, r) => s + r.samplersGiven,
-          0
-        );
+    const liMap: Record<string, any[]> = {};
+    for (const li of lineItems ?? []) {
+      (liMap[li.report_id] ??= []).push(li);
+    }
 
-        // Unique months worked
-        const monthsSet = new Set(
-          empReports.map((r) => r.dateISO.slice(0, 7))
-        );
-        const monthsReported = monthsSet.size;
+    const empReportsMap: Record<string, any[]> = {};
+    for (const r of yearReports) {
+      (empReportsMap[r.employee_id] ??= []).push(r);
+    }
 
-        const avgSalesPerMonth = monthsReported
-          ? parseFloat((totalSales / monthsReported).toFixed(1))
-          : 0;
+    for (const [empId, empReports] of Object.entries(empReportsMap)) {
+      const emp = empMap[empId];
+      if (!emp || emp.status !== "active") continue;
 
-        // Yearly target
-        const target = emp.targets.monthly * 12;
-        const achievePct = target
-          ? Math.round((totalSales / target) * 100)
-          : 0;
+      let totalSales = 0;
+      let totalSalesKES = 0;
+      let totalCash = 0;
+      let totalMpesa = 0;
+      let totalDebt = 0;
+      let totalCustomers = 0;
+      let totalSamplers = 0;
 
-        // Best month
-        const monthMap: Record<string, number> = {};
-        empReports.forEach((r) => {
-          const m = r.dateISO.slice(0, 7); // YYYY-MM
-          monthMap[m] = (monthMap[m] || 0) + r.sales;
-        });
+      for (const r of empReports) {
+        const items = liMap[r.id] ?? [];
+        const reportSales = items.reduce((s, li) => s + li.qty, 0);
+        const reportKES = items.reduce((s, li) => s + li.subtotal, 0);
+        totalSales += reportSales;
+        totalSalesKES += reportKES;
+        totalCash += r.cash ?? 0;
+        totalMpesa += r.mpesa ?? 0;
+        totalDebt += r.debt ?? 0;
+        totalCustomers += r.customers_reached ?? 0;
+        totalSamplers += r.samplers_given ?? 0;
+      }
 
-        const entries = Object.entries(monthMap);
-        const [bestMonth] = entries.reduce((best, curr) =>
-          curr[1] > best[1] ? curr : best
-        );
+      const monthsSet = new Set(empReports.map((r) => r.date_iso.slice(0, 7)));
+      const monthsReported = monthsSet.size;
+      const avgSalesPerMonth = monthsReported
+        ? parseFloat((totalSales / monthsReported).toFixed(1))
+        : 0;
+      const target = emp.targets.monthly * 12;
+      const achievePct = target ? Math.round((totalSales / target) * 100) : 0;
 
-        const bestMonthDisplay = new Date(
-          bestMonth + "-01"
-        ).toLocaleDateString("en-US", {
-          month: "short",
-          year: "numeric",
-        });
+      const monthMap: Record<string, number> = {};
+      empReports.forEach((r) => {
+        const m = r.date_iso.slice(0, 7);
+        const items = liMap[r.id] ?? [];
+        const sales = items.reduce((s, li) => s + li.qty, 0);
+        monthMap[m] = (monthMap[m] || 0) + sales;
+      });
 
-        // Trend (first half vs second half)
-        const sorted = [...empReports].sort((a, b) =>
-          a.dateISO.localeCompare(b.dateISO)
-        );
+      const entries = Object.entries(monthMap);
+      const [bestMonth] = entries.length
+        ? entries.reduce((best, curr) => (curr[1] > best[1] ? curr : best))
+        : ["", 0];
+      const bestMonthDisplay = bestMonth
+        ? new Date(bestMonth + "-01").toLocaleDateString("en-US", {
+            month: "short",
+            year: "numeric",
+          })
+        : "";
 
-        const mid = Math.floor(sorted.length / 2);
+      const sorted = [...empReports].sort((a, b) => a.date_iso.localeCompare(b.date_iso));
+      const mid = Math.floor(sorted.length / 2);
+      const firstHalfSales = sorted.slice(0, mid).reduce((s, r) => {
+        const items = liMap[r.id] ?? [];
+        return s + items.reduce((sum, li) => sum + li.qty, 0);
+      }, 0);
+      const secondHalfSales = sorted.slice(mid).reduce((s, r) => {
+        const items = liMap[r.id] ?? [];
+        return s + items.reduce((sum, li) => sum + li.qty, 0);
+      }, 0);
+      const firstHalfAvg = firstHalfSales / (mid || 1);
+      const secondHalfAvg = secondHalfSales / (sorted.length - mid || 1);
+      const trend: "up" | "down" | "flat" =
+        secondHalfAvg > firstHalfAvg * 1.05 ? "up"
+        : secondHalfAvg < firstHalfAvg * 0.95 ? "down"
+        : "flat";
 
-        const firstHalfAvg =
-          sorted.slice(0, mid).reduce((s, r) => s + r.sales, 0) /
-          (mid || 1);
-
-        const secondHalfAvg =
-          sorted.slice(mid).reduce((s, r) => s + r.sales, 0) /
-          (sorted.length - mid || 1);
-
-        const trend: "up" | "down" | "flat" =
-          secondHalfAvg > firstHalfAvg * 1.05
-            ? "up"
-            : secondHalfAvg < firstHalfAvg * 0.95
-            ? "down"
-            : "flat";
-
-        return {
-          employee: emp,
-          year: yr,
-
-          totalSales,
-          totalSalesKES,
-          totalCash,
-          totalMpesa,
-          totalDebt,
-
-          totalCustomers,
-          totalSamplers,
-
-          monthsReported,
-          target,
-          achievePct,
-
-          avgSalesPerMonth,
-          trend,
-
-          bestMonth,
-          bestMonthDisplay,
-        } as EmployeeYearlyAggregate;
-      })
-      .filter(Boolean) as EmployeeYearlyAggregate[];
-
-    results.push(...yearlyData);
+      results.push({
+        employee: emp,
+        year: yr,
+        totalSales,
+        totalSalesKES,
+        totalCash,
+        totalMpesa,
+        totalDebt,
+        totalCustomers,
+        totalSamplers,
+        monthsReported,
+        target,
+        achievePct,
+        avgSalesPerMonth,
+        trend,
+        bestMonth,
+        bestMonthDisplay,
+      });
+    }
   }
 
   return results;
@@ -827,41 +1239,88 @@ export const getDashboardKpis = async (
   toISO: string
 ): Promise<DashboardKpis> => {
   await delay();
-  const rangeReports = db.reports.filter(
-    (r) => r.dateISO >= fromISO && r.dateISO <= toISO && r.submitted
-  );
 
-  const totalSales     = rangeReports.reduce((s, r) => s + r.sales, 0);
-  const totalSalesKES  = rangeReports.reduce((s, r) => s + r.totalSalesKES, 0);
-  const totalCash      = rangeReports.reduce((s, r) => s + r.salesBreakdown.cash, 0);
-  const totalMpesa     = rangeReports.reduce((s, r) => s + r.salesBreakdown.mpesa, 0);
-  const totalDebt      = rangeReports.reduce((s, r) => s + r.salesBreakdown.debt, 0);
-  const totalCustomers = rangeReports.reduce((s, r) => s + r.customersReached, 0);
-  const totalSamplers  = rangeReports.reduce((s, r) => s + r.samplersGiven, 0);
+  const { data: rangeReports } = await supabase
+    .from("reports")
+    .select("*")
+    .gte("date_iso", fromISO)
+    .lte("date_iso", toISO)
+    .eq("submitted", true);
+
+  if (!rangeReports?.length) {
+    const activeEmployees = await getEmployees("active");
+    return {
+      totalSales: 0,
+      totalSalesKES: 0,
+      totalCash: 0,
+      totalMpesa: 0,
+      totalDebt: 0,
+      totalCustomers: 0,
+      totalSamplers: 0,
+      totalEmployees: activeEmployees.length,
+      onlineEmployees: activeEmployees.filter((e) => e.online).length,
+      topPerformer: null,
+      conversionRate: 0,
+      avgSalesPerEmployee: 0,
+    };
+  }
+
+  const reportIds = rangeReports.map((r) => r.id);
+  const { data: lineItems } = await supabase
+    .from("report_line_items")
+    .select("*")
+    .in("report_id", reportIds);
+
+  const liMap: Record<string, any[]> = {};
+  for (const li of lineItems ?? []) {
+    (liMap[li.report_id] ??= []).push(li);
+  }
+
+  let totalSales = 0;
+  let totalSalesKES = 0;
+  let totalCash = 0;
+  let totalMpesa = 0;
+  let totalDebt = 0;
+  let totalCustomers = 0;
+  let totalSamplers = 0;
 
   const byEmployee: Record<string, number> = {};
-  rangeReports.forEach((r) => {
-    byEmployee[r.employeeId] = (byEmployee[r.employeeId] ?? 0) + r.sales;
-  });
-  const topEmpId = Object.entries(byEmployee).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-  const topPerformer = topEmpId
-    ? (db.employees.find((e) => e.id === topEmpId) ?? null)
-    : null;
 
-  const activeEmployees   = db.employees.filter((e) => e.status === "active");
-  const onlineEmployees   = activeEmployees.filter((e) => e.online).length;
+  for (const r of rangeReports) {
+    const items = liMap[r.id] ?? [];
+    const sales = items.reduce((s, li) => s + li.qty, 0);
+    const kes = items.reduce((s, li) => s + li.subtotal, 0);
+
+    totalSales += sales;
+    totalSalesKES += kes;
+    totalCash += r.cash ?? 0;
+    totalMpesa += r.mpesa ?? 0;
+    totalDebt += r.debt ?? 0;
+    totalCustomers += r.customers_reached ?? 0;
+    totalSamplers += r.samplers_given ?? 0;
+
+    byEmployee[r.employee_id] = (byEmployee[r.employee_id] ?? 0) + sales;
+  }
+
+  const topEmpId = Object.entries(byEmployee).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const topPerformer = topEmpId ? await getEmployeeById(topEmpId) : null;
+
+  const activeEmployees = await getEmployees("active");
+  const onlineEmployees = activeEmployees.filter((e) => e.online).length;
   const participatingCount = Object.keys(byEmployee).length || 1;
 
   return {
-    totalSales, totalSalesKES,
-    totalCash, totalMpesa, totalDebt,
-    totalCustomers, totalSamplers,
-    totalEmployees:      activeEmployees.length,
+    totalSales,
+    totalSalesKES,
+    totalCash,
+    totalMpesa,
+    totalDebt,
+    totalCustomers,
+    totalSamplers,
+    totalEmployees: activeEmployees.length,
     onlineEmployees,
     topPerformer,
-    conversionRate:      totalSamplers > 0
-      ? Math.round((totalSales / totalSamplers) * 100)
-      : 0,
+    conversionRate: totalSamplers > 0 ? Math.round((totalSales / totalSamplers) * 100) : 0,
     avgSalesPerEmployee: Math.round(totalSales / participatingCount),
   };
 };
@@ -874,50 +1333,60 @@ export interface ChartDataset {
 }
 
 export const getChartData = async (
-    mode: "daily" | "weekly" | "monthly" | "custom",
+  mode: "daily" | "weekly" | "monthly" | "custom",
   referenceISO: string,
-   from?: string,
+  from?: string,
   to?: string
 ): Promise<ChartDataset> => {
   await delay();
   const anchor = new Date(referenceISO + "T00:00:00");
 
+  const getAggForDate = async (iso: string) => {
+    const { data: reports } = await supabase
+      .from("reports")
+      .select("id, customers_reached, samplers_given")
+      .eq("date_iso", iso)
+      .eq("submitted", true);
+
+    if (!reports?.length) return { sales: 0, customers: 0, samplers: 0 };
+
+    const reportIds = reports.map((r) => r.id);
+    const { data: lineItems } = await supabase
+      .from("report_line_items")
+      .select("qty")
+      .in("report_id", reportIds);
+
+    const sales = (lineItems ?? []).reduce((s, li) => s + li.qty, 0);
+    const customers = reports.reduce((s, r) => s + (r.customers_reached ?? 0), 0);
+    const samplers = reports.reduce((s, r) => s + (r.samplers_given ?? 0), 0);
+
+    return { sales, customers, samplers };
+  };
+
   if (mode === "custom" && from && to) {
-  const start = new Date(from + "T00:00:00");
-  const end = new Date(to + "T00:00:00");
+    const start = new Date(from + "T00:00:00");
+    const end = new Date(to + "T00:00:00");
 
-  const days: string[] = [];
+    const days: string[] = [];
+    const current = new Date(start);
+    while (current <= end) {
+      days.push(current.toISOString().split("T")[0]);
+      current.setDate(current.getDate() + 1);
+    }
 
-  const current = new Date(start);
-  while (current <= end) {
-    days.push(current.toISOString().split("T")[0]);
-    current.setDate(current.getDate() + 1);
+    const labels = days.map((iso) =>
+      new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short" })
+    );
+
+    const results = await Promise.all(days.map(getAggForDate));
+
+    return {
+      labels,
+      sales: results.map((r) => r.sales),
+      customers: results.map((r) => r.customers),
+      samplers: results.map((r) => r.samplers),
+    };
   }
-
-  const labels = days.map((iso) =>
-    new Date(iso).toLocaleDateString("en-US", { day: "numeric", month: "short" })
-  );
-
-  const sales = days.map((iso) =>
-    db.reports
-      .filter((r) => r.dateISO === iso)
-      .reduce((s, r) => s + r.sales, 0)
-  );
-
-  const customers = days.map((iso) =>
-    db.reports
-      .filter((r) => r.dateISO === iso)
-      .reduce((s, r) => s + r.customersReached, 0)
-  );
-
-  const samplers = days.map((iso) =>
-    db.reports
-      .filter((r) => r.dateISO === iso)
-      .reduce((s, r) => s + r.samplersGiven, 0)
-  );
-
-  return { labels, sales, customers, samplers };
-}
 
   if (mode === "daily") {
     const days = Array.from({ length: 7 }, (_, i) => {
@@ -925,19 +1394,19 @@ export const getChartData = async (
       d.setDate(d.getDate() - (6 - i));
       return d.toISOString().split("T")[0];
     });
+
     const dayLabels = days.map((iso) =>
       new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" })
     );
-    const sales     = days.map((iso) =>
-      db.reports.filter((r) => r.dateISO === iso).reduce((s, r) => s + r.sales, 0)
-    );
-    const customers = days.map((iso) =>
-      db.reports.filter((r) => r.dateISO === iso).reduce((s, r) => s + r.customersReached, 0)
-    );
-    const samplers = days.map((iso) =>
-      db.reports.filter((r) => r.dateISO === iso).reduce((s, r) => s + r.samplersGiven, 0)
-    );
-    return { labels: dayLabels, sales, customers, samplers };
+
+    const results = await Promise.all(days.map(getAggForDate));
+
+    return {
+      labels: dayLabels,
+      sales: results.map((r) => r.sales),
+      customers: results.map((r) => r.customers),
+      samplers: results.map((r) => r.samplers),
+    };
   }
 
   if (mode === "weekly") {
@@ -948,52 +1417,77 @@ export const getChartData = async (
         return d.toISOString().split("T")[0];
       })
     );
-    const labels    = weeks.map((_, i) => `Wk ${i + 1}`);
-    const sales     = weeks.map((wk) =>
-      wk.reduce(
-        (s, iso) =>
-          s + db.reports.filter((r) => r.dateISO === iso).reduce((a, r) => a + r.sales, 0),
-        0
-      )
+
+    const labels = weeks.map((_, i) => `Wk ${i + 1}`);
+
+    const weekResults = await Promise.all(
+      weeks.map(async (wk) => {
+        const dailyResults = await Promise.all(wk.map(getAggForDate));
+        return {
+          sales: dailyResults.reduce((s, r) => s + r.sales, 0),
+          customers: dailyResults.reduce((s, r) => s + r.customers, 0),
+          samplers: dailyResults.reduce((s, r) => s + r.samplers, 0),
+        };
+      })
     );
-    const customers = weeks.map((wk) =>
-      wk.reduce(
-        (s, iso) =>
-          s + db.reports.filter((r) => r.dateISO === iso).reduce((a, r) => a + r.customersReached, 0),
-        0
-      )
-    );
-    const samplers = weeks.map((wk) =>
-      wk.reduce(
-        (s, iso) =>
-          s + db.reports.filter((r) => r.dateISO === iso).reduce((a, r) => a + r.samplersGiven, 0),
-        0
-      )
-    );
-    return { labels, sales, customers, samplers };
+
+    return {
+      labels,
+      sales: weekResults.map((w) => w.sales),
+      customers: weekResults.map((w) => w.customers),
+      samplers: weekResults.map((w) => w.samplers),
+    };
   }
 
-  // monthly
+  // FIXED: monthly mode using date ranges instead of LIKE
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(anchor);
     d.setDate(1);
     d.setMonth(d.getMonth() - (5 - i));
     return {
-      label:  d.toLocaleDateString("en-US", { month: "short" }),
-      prefix: d.toISOString().slice(0, 7) + "-",
+      label: d.toLocaleDateString("en-US", { month: "short" }),
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
     };
   });
-  const labels    = months.map((m) => m.label);
-  const sales     = months.map(({ prefix }) =>
-    db.reports.filter((r) => r.dateISO.startsWith(prefix)).reduce((s, r) => s + r.sales, 0)
+
+  const labels = months.map((m) => m.label);
+
+  const monthResults = await Promise.all(
+    months.map(async ({ year, month }) => {
+      const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+      const lastDay = getLastDayOfMonth(year, month);
+      const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+      const { data: reports } = await supabase
+        .from("reports")
+        .select("id, customers_reached, samplers_given")
+        .gte("date_iso", monthStart)
+        .lte("date_iso", monthEnd)
+        .eq("submitted", true);
+
+      if (!reports?.length) return { sales: 0, customers: 0, samplers: 0 };
+
+      const reportIds = reports.map((r) => r.id);
+      const { data: lineItems } = await supabase
+        .from("report_line_items")
+        .select("qty")
+        .in("report_id", reportIds);
+
+      return {
+        sales: (lineItems ?? []).reduce((s, li) => s + li.qty, 0),
+        customers: reports.reduce((s, r) => s + (r.customers_reached ?? 0), 0),
+        samplers: reports.reduce((s, r) => s + (r.samplers_given ?? 0), 0),
+      };
+    })
   );
-  const customers = months.map(({ prefix }) =>
-    db.reports.filter((r) => r.dateISO.startsWith(prefix)).reduce((s, r) => s + r.customersReached, 0)
-  );
-  const samplers = months.map(({ prefix }) =>
-    db.reports.filter((r) => r.dateISO.startsWith(prefix)).reduce((s, r) => s + r.samplersGiven, 0)
-  );
-  return { labels, sales, customers, samplers };
+
+  return {
+    labels,
+    sales: monthResults.map((m) => m.sales),
+    customers: monthResults.map((m) => m.customers),
+    samplers: monthResults.map((m) => m.samplers),
+  };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1002,14 +1496,22 @@ export const getChartData = async (
 
 export const getCheckinsByDate = async (dateISO: string): Promise<CheckIn[]> => {
   await delay();
-  return db.checkins.filter((c) => c.date === dateISO);
+  const { data } = await supabase
+    .from("checkins")
+    .select("*")
+    .eq("date", dateISO)
+    .order("check_in_time", { ascending: false });
+  return (data ?? []).map(mapCheckin);
 };
 
 export const getCheckinsByEmployee = async (employeeId: string): Promise<CheckIn[]> => {
   await delay();
-  return db.checkins
-    .filter((c) => c.employeeId === employeeId)
-    .sort((a, b) => b.checkInTime.localeCompare(a.checkInTime));
+  const { data } = await supabase
+    .from("checkins")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .order("check_in_time", { ascending: false });
+  return (data ?? []).map(mapCheckin);
 };
 
 export interface CheckInInput {
@@ -1023,28 +1525,73 @@ export interface CheckInInput {
 export interface CheckInResult {
   success: boolean;
   checkin?: CheckIn;
-  error?: string;
   distanceMeters?: number;
+  error?: string;
 }
 
-/**
- * Record a new check-in.
- *
- * Validation:
- *  • Employee must exist.
- *  • Employee's GPS must be within 50 m of their assigned location.
- *  • Prevents duplicate check-ins on the same day.
- */
+// export const recordCheckIn = async (input: CheckInInput): Promise<CheckInResult> => {
+//   await delay(300);
+
+//   const emp = await getEmployeeById(input.employeeId);
+//   if (!emp) return { success: false, error: "Employee not found." };
+
+//   const dist = haversineDistance(
+//     input.latitude,
+//     input.longitude,
+//     emp.assignedLocation.latitude,
+//     emp.assignedLocation.longitude
+//   );
+//   const withinRadius = dist <= emp.assignedLocation.radiusMeters;
+//   if (!withinRadius) {
+//     return {
+//       success: false,
+//       distanceMeters: Math.round(dist),
+//       error: `You are ${Math.round(dist)} m away from ${emp.assignedLocation.name}. You must be within ${emp.assignedLocation.radiusMeters} m to check in.`,
+//     };
+//   }
+
+//   const today = todayISO();
+//   const existingCheckin = await getTodayCheckin(input.employeeId);
+//   if (existingCheckin) {
+//     return { success: false, error: "You are already checked in for today." };
+//   }
+
+//   const { data, error } = await supabase.rpc("record_checkin", {
+//     p_employee_id: input.employeeId,
+//     p_lat: input.latitude,
+//     p_lng: input.longitude,
+//     p_accuracy: input.accuracy,
+//     p_location_name: input.locationName,
+//   });
+
+//   if (error) return { success: false, error: error.message };
+//   if (!data?.success) {
+//     return {
+//       success: false,
+//       distanceMeters: data?.distanceMeters,
+//       error: data?.error,
+//     };
+//   }
+
+//   const { data: row } = await supabase
+//     .from("checkins")
+//     .select("*")
+//     .eq("id", data.checkinId)
+//     .single();
+
+//   return { success: true, checkin: row ? mapCheckin(row) : undefined };
+// };
 export const recordCheckIn = async (input: CheckInInput): Promise<CheckInResult> => {
   await delay(300);
 
-  const emp = db.employees.find((e) => e.id === input.employeeId);
+  const emp = await getEmployeeById(input.employeeId);
   if (!emp) return { success: false, error: "Employee not found." };
 
-  // ── Geo-fence check ───────────────────────────────────────────────────────
   const dist = haversineDistance(
-    input.latitude, input.longitude,
-    emp.assignedLocation.latitude, emp.assignedLocation.longitude
+    input.latitude,
+    input.longitude,
+    emp.assignedLocation.latitude,
+    emp.assignedLocation.longitude
   );
   const withinRadius = dist <= emp.assignedLocation.radiusMeters;
   if (!withinRadius) {
@@ -1055,93 +1602,128 @@ export const recordCheckIn = async (input: CheckInInput): Promise<CheckInResult>
     };
   }
 
-  // ── Duplicate check ───────────────────────────────────────────────────────
   const today = todayISO();
-  const existingCheckin = db.checkins.find(
-    (c) => c.employeeId === input.employeeId && c.date === today && c.status === "checked-in"
-  );
+  const existingCheckin = await getTodayCheckin(input.employeeId);
   if (existingCheckin) {
     return { success: false, error: "You are already checked in for today." };
   }
 
-  const now    = new Date().toISOString();
-  const id     = newId("c", db.checkins);
+  // ✅ UPDATE EMPLOYEE ONLINE STATUS
+  await supabase
+    .from("employees")
+    .update({ 
+      online: true,
+      last_known_lat: input.latitude,
+      last_known_lng: input.longitude,
+      last_known_name: input.locationName,
+      last_known_at: new Date().toISOString(),
+    })
+    .eq("id", input.employeeId);
 
-  const checkin: CheckIn = {
-    id,
-    employeeId:   input.employeeId,
-    coords: {
-      latitude:  input.latitude,
-      longitude: input.longitude,
-      accuracy:  input.accuracy,
-    },
-    locationName: input.locationName,
-    checkInTime:  now,
-    checkOutTime: null,
-    status:       "checked-in",
-    date:         today,
-    withinRadius: true,
-  };
+  const { data, error } = await supabase.rpc("record_checkin", {
+    p_employee_id: input.employeeId,
+    p_lat: input.latitude,
+    p_lng: input.longitude,
+    p_accuracy: input.accuracy,
+    p_location_name: input.locationName,
+  });
 
-  db.checkins.push(checkin);
-
-  // Mark employee online + update last known location
-  const empIdx = db.employees.findIndex((e) => e.id === input.employeeId);
-  if (empIdx !== -1) {
-    db.employees[empIdx].online = true;
-    db.employees[empIdx].lastKnownLocation = {
-      latitude:  input.latitude,
-      longitude: input.longitude,
-      name:      input.locationName,
-      timestamp: now,
-    };
+  if (error) return { success: false, error: error.message };
+  if (!data?.success) {
+    return { success: false, distanceMeters: data?.distanceMeters, error: data?.error };
   }
 
-  return { success: true, checkin };
+  const { data: row } = await supabase
+    .from("checkins")
+    .select("*")
+    .eq("id", data.checkinId)
+    .single();
+
+  return { success: true, checkin: row ? mapCheckin(row) : undefined };
+};
+export const getTodayCheckin = async (employeeId: string): Promise<CheckIn | null> => {
+  const today = todayISO();
+  const { data } = await supabase
+    .from("checkins")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .eq("date", today)
+    .eq("status", "checked-in")
+    .single();
+  return data ? mapCheckin(data) : null;
 };
 
-export const recordCheckOut = async (checkinId: string): Promise<CheckIn | null> => {
-  await delay(200);
-  const idx = db.checkins.findIndex((c) => c.id === checkinId);
-  if (idx === -1) return null;
-
-  const now = new Date().toISOString();
-  db.checkins[idx].checkOutTime = now;
-  db.checkins[idx].status = "checked-out";
-
-  const empIdx = db.employees.findIndex(
-    (e) => e.id === db.checkins[idx].employeeId
-  );
-  if (empIdx !== -1) db.employees[empIdx].online = false;
-
-  return db.checkins[idx];
-};
+// export const recordCheckOut = async (checkinId: string): Promise<CheckIn | null> => {
+//   await delay(200);
+//   const { data } = await supabase.rpc("record_checkout", { p_checkin_id: checkinId });
+//   if (!data?.success) return null;
+//   const { data: row } = await supabase
+//     .from("checkins")
+//     .select("*")
+//     .eq("id", checkinId)
+//     .single();
+//   return row ? mapCheckin(row) : null;
+// };
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  SECTION F: PAYROLL
 // ─────────────────────────────────────────────────────────────────────────────
+export const recordCheckOut = async (checkinId: string): Promise<CheckIn | null> => {
+  await delay(200);
 
+
+  
+  
+  // Get the checkin first to know the employee
+  const { data: checkin } = await supabase
+    .from("checkins")
+    .select("employee_id")
+    .eq("id", checkinId)
+    .single();
+  
+  // ✅ UPDATE EMPLOYEE ONLINE STATUS TO FALSE
+  if (checkin?.employee_id) {
+    await supabase
+      .from("employees")
+      .update({ online: false })
+      .eq("id", checkin.employee_id);
+  }
+  
+  const { data } = await supabase.rpc("record_checkout", { p_checkin_id: checkinId });
+  if (!data?.success) return null;
+  
+  const { data: row } = await supabase
+    .from("checkins")
+    .select("*")
+    .eq("id", checkinId)
+    .single();
+    
+  return row ? mapCheckin(row) : null;
+};
 export const getPayrollByPeriod = async (
   month: string,
   year: string
 ): Promise<PayrollRecord[]> => {
   await delay();
-  return db.payroll.filter(
-    (p) => p.period.month === month && p.period.year === year
-  );
+  const { data } = await supabase
+    .from("payroll_records")
+    .select("*")
+    .eq("period_month", month)
+    .eq("period_year", year);
+  return Promise.all((data ?? []).map(hydratePayroll));
 };
 
 export const getPayrollByEmployee = async (
   employeeId: string
 ): Promise<PayrollRecord[]> => {
   await delay();
-  return db.payroll
-    .filter((p) => p.employeeId === employeeId)
-    .sort((a, b) =>
-      `${b.period.year}-${b.period.month}`.localeCompare(
-        `${a.period.year}-${a.period.month}`
-      )
-    );
+  const { data } = await supabase
+    .from("payroll_records")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .order("period_year", { ascending: false })
+    .order("period_month", { ascending: false });
+  return Promise.all((data ?? []).map(hydratePayroll));
 };
 
 export const calcGross = (p: PayrollRecord): number =>
@@ -1170,28 +1752,93 @@ export const updatePayrollRecord = async (
   updates: PayrollUpdateInput
 ): Promise<PayrollRecord | null> => {
   await delay(200);
-  const idx = db.payroll.findIndex((p) => p.id === id);
-  if (idx === -1) return null;
 
-  const record = { ...db.payroll[idx] };
-  if (updates.salesBonus       !== undefined) record.bonuses.salesBonus      = updates.salesBonus;
-  if (updates.performanceBonus !== undefined) record.bonuses.performanceBonus = updates.performanceBonus;
-  if (updates.allowances)  record.allowances = updates.allowances;
-  if (updates.deductions)  record.deductions  = updates.deductions;
-  if (updates.daysWorked   !== undefined) record.attendance.daysWorked = updates.daysWorked;
-  if (updates.notes        !== undefined) record.notes = updates.notes;
+  const patch: Record<string, any> = {};
+  if (updates.salesBonus !== undefined) patch.sales_bonus = updates.salesBonus;
+  if (updates.performanceBonus !== undefined) patch.perf_bonus = updates.performanceBonus;
+  if (updates.daysWorked !== undefined) patch.days_worked = updates.daysWorked;
+  if (updates.notes !== undefined) patch.notes = updates.notes;
 
-  db.payroll[idx] = record;
-  return record;
+  if (Object.keys(patch).length > 0) {
+    await supabase.from("payroll_records").update(patch).eq("id", id);
+  }
+
+  if (updates.allowances) {
+    await supabase.from("payroll_allowances").delete().eq("payroll_id", id);
+    await supabase.from("payroll_allowances").insert(
+      updates.allowances.map((a) => ({ payroll_id: id, label: a.label, amount: a.amount }))
+    );
+  }
+
+  if (updates.deductions) {
+    await supabase.from("payroll_deductions").delete().eq("payroll_id", id);
+    await supabase.from("payroll_deductions").insert(
+      updates.deductions.map((d) => ({ payroll_id: id, label: d.label, amount: d.amount }))
+    );
+  }
+
+  const { data } = await supabase
+    .from("payroll_records")
+    .select("*")
+    .eq("id", id)
+    .single();
+  return data ? hydratePayroll(data) : null;
+};
+
+// Get unread notification count
+export const getUnreadNotificationCount = async (): Promise<number> => {
+  const { count, error } = await supabase
+    .from("notifications")
+    .select("*", { count: "exact", head: true })
+    .eq("read", false);
+    
+  if (error) {
+    console.error("Error getting notification count:", error);
+    return 0;
+  }
+  return count ?? 0;
+};
+
+// Get all notifications
+export const getNotifications = async (limit: number = 50): Promise<any[]> => {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+    
+  if (error) throw error;
+  return data ?? [];
+};
+
+// Mark notification as read
+export const markNotificationRead = async (id: string): Promise<boolean> => {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read: true })
+    .eq("id", id);
+  return !error;
+};
+
+// Mark all notifications as read
+export const markAllNotificationsRead = async (): Promise<boolean> => {
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read: true })
+    .eq("read", false);
+  return !error;
 };
 
 export const markPayrollPaid = async (id: string): Promise<PayrollRecord | null> => {
   await delay(200);
-  const idx = db.payroll.findIndex((p) => p.id === id);
-  if (idx === -1) return null;
-  db.payroll[idx].status = "paid";
-  db.payroll[idx].paidAt = new Date().toISOString();
-  return db.payroll[idx];
+  const { data } = await supabase.rpc("mark_payroll_paid", { p_payroll_id: id });
+  if (!data) return null;
+  const { data: row } = await supabase
+    .from("payroll_records")
+    .select("*")
+    .eq("id", id)
+    .single();
+  return row ? hydratePayroll(row) : null;
 };
 
 export interface PayrollPeriodSummary {
@@ -1208,16 +1855,14 @@ export const getPayrollPeriodSummary = async (
   year: string
 ): Promise<PayrollPeriodSummary> => {
   await delay();
-  const records = db.payroll.filter(
-    (p) => p.period.month === month && p.period.year === year
-  );
+  const records = await getPayrollByPeriod(month, year);
   return {
-    totalGross:      records.reduce((s, p) => s + calcGross(p), 0),
-    totalNet:        records.reduce((s, p) => s + calcNet(p), 0),
+    totalGross: records.reduce((s, p) => s + calcGross(p), 0),
+    totalNet: records.reduce((s, p) => s + calcNet(p), 0),
     totalDeductions: records.reduce((s, p) => s + calcTotalDeductions(p), 0),
-    paidCount:       records.filter((p) => p.status === "paid").length,
-    pendingCount:    records.filter((p) => p.status === "pending").length,
-    draftCount:      records.filter((p) => p.status === "draft").length,
+    paidCount: records.filter((p) => p.status === "paid").length,
+    pendingCount: records.filter((p) => p.status === "pending").length,
+    draftCount: records.filter((p) => p.status === "draft").length,
   };
 };
 
@@ -1241,34 +1886,55 @@ export const getEmployeeTodaySummary = async (
   employeeId: string
 ): Promise<EmployeeTodaySummary> => {
   await delay();
-  const iso     = todayISO();
+
+  const iso = todayISO();
   const weekAgo = new Date(iso);
   weekAgo.setDate(weekAgo.getDate() - 6);
-  const weekAgoISO    = weekAgo.toISOString().split("T")[0];
-  const monthPrefix   = iso.slice(0, 7) + "-";
+  const weekAgoISO = weekAgo.toISOString().split("T")[0];
+  
+  // FIXED: Calculate month range properly instead of LIKE
+  const [year, month] = iso.split('-');
+  const monthStart = `${year}-${month}-01`;
+  const lastDay = getLastDayOfMonth(parseInt(year), parseInt(month));
+  const monthEnd = `${year}-${month}-${String(lastDay).padStart(2, "0")}`;
 
-  const todayReport  = db.reports.find((r) => r.employeeId === employeeId && r.dateISO === iso) ?? null;
-  const todayCheckin = db.checkins.find((c) => c.employeeId === employeeId && c.date === iso) ?? null;
+  const todayReport = (await getReportsByEmployee(employeeId)).find(
+    (r) => r.dateISO === iso
+  ) ?? null;
 
-  const weekReports  = db.reports.filter(
-    (r) => r.employeeId === employeeId && r.dateISO >= weekAgoISO && r.dateISO <= iso
+  const todayCheckin = await getTodayCheckin(employeeId);
+
+  const weekReports = await fetchReportsWithLineItems(
+    supabase
+      .from("reports")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .gte("date_iso", weekAgoISO)
+      .lte("date_iso", iso)
   );
-  const monthReports = db.reports.filter(
-    (r) => r.employeeId === employeeId && r.dateISO.startsWith(monthPrefix)
+
+  // FIXED: Use date range instead of LIKE
+  const monthReports = await fetchReportsWithLineItems(
+    supabase
+      .from("reports")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .gte("date_iso", monthStart)
+      .lte("date_iso", monthEnd)
   );
 
-  const emp = db.employees.find((e) => e.id === employeeId);
+  const emp = await getEmployeeById(employeeId);
 
   return {
     todayReport,
     todayCheckin,
-    weekSales:     weekReports.reduce((s, r) => s + r.sales, 0),
-    weekSalesKES:  weekReports.reduce((s, r) => s + r.totalSalesKES, 0),
+    weekSales: weekReports.reduce((s, r) => s + r.sales, 0),
+    weekSalesKES: weekReports.reduce((s, r) => s + r.totalSalesKES, 0),
     weekCustomers: weekReports.reduce((s, r) => s + r.customersReached, 0),
-    weekSamplers:  weekReports.reduce((s, r) => s + r.samplersGiven, 0),
-    monthSales:    monthReports.reduce((s, r) => s + r.sales, 0),
+    weekSamplers: weekReports.reduce((s, r) => s + r.samplersGiven, 0),
+    monthSales: monthReports.reduce((s, r) => s + r.sales, 0),
     monthSalesKES: monthReports.reduce((s, r) => s + r.totalSalesKES, 0),
-    monthTarget:   emp?.targets.monthly ?? 0,
+    monthTarget: emp?.targets.monthly ?? 0,
   };
 };
 
@@ -1284,14 +1950,41 @@ export const getHydratedReports = async (
   dateISO?: string
 ): Promise<HydratedReport[]> => {
   await delay();
+
   const base = dateISO
-    ? db.reports.filter((r) => r.dateISO === dateISO)
-    : [...db.reports];
+    ? await getReportsByDate(dateISO)
+    : await getAllReports();
+
+  const employees = await getEmployees();
+  const empMap = Object.fromEntries(employees.map((e) => [e.id, e]));
 
   return base
     .sort((a, b) => b.dateISO.localeCompare(a.dateISO))
     .map((r) => ({
       ...r,
-      employee: db.employees.find((e) => e.id === r.employeeId) ?? null,
+      employee: empMap[r.employeeId] ?? null,
     }));
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PHOTO UPLOAD
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const uploadReportPhoto = async (
+  employeeId: string,
+  localUri: string
+): Promise<string> => {
+  const response = await fetch(localUri);
+  const blob = await response.blob();
+  const ext = localUri.split(".").pop() ?? "jpg";
+  const path = `${employeeId}/${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("report-photos")
+    .upload(path, blob, { contentType: `image/${ext}`, upsert: false });
+
+  if (error) throw error;
+
+  const { data } = supabase.storage.from("report-photos").getPublicUrl(path);
+  return data.publicUrl;
 };

@@ -1,7 +1,6 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
+import { View,Text, StyleSheet } from "react-native";
 import Svg, { Polygon } from "react-native-svg";
-import { Text } from "./Themed";
 const BrandBanner: React.FC = () => {
   return (
     <View style={styles.container}>

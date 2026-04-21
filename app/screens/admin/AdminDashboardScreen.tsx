@@ -41,6 +41,7 @@ import {
   DashboardKpis,
   ChartDataset,
   Employee,
+  supabase,
 } from "../../data/dbService";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -111,6 +112,10 @@ interface LoginNotification {
   read: boolean;
 }
 
+
+
+
+
 // ── Smooth bezier path helper ─────────────────────────────────────────────────
 const smoothPath = (pts: { x: number; y: number }[]): string => {
   if (pts.length < 2) return "";
@@ -136,6 +141,7 @@ interface EmpWithSales extends Employee {
   weeklyCustomers: number;
   weeklySamplers: number;
 }
+
 
 // ─── Mini Calendar Picker ─────────────────────────────────────────────────────
 const MiniCalendar: React.FC<{
@@ -389,55 +395,151 @@ const EmployeeRow: React.FC<{ emp: EmpWithSales; rank: number }> = ({ emp, rank 
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-  const insets = useSafeAreaInsets();
+   const insets = useSafeAreaInsets();
 
   // Chart & filter state
-  const [chartFilter,    setChartFilter]    = useState<ChartFilter>("Weekly");
-  const [kpiFilter,      setKpiFilter]      = useState<KpiFilter>("This Week");
-  const [empTab,         setEmpTab]         = useState<"all" | "online" | "offline">("all");
+  const [chartFilter, setChartFilter] = useState<ChartFilter>("Weekly");
+  const [kpiFilter, setKpiFilter] = useState<KpiFilter>("This Week");
+  const [empTab, setEmpTab] = useState<"all" | "online" | "offline">("all");
 
   // Popover & modals
   const [showKpiPopover, setShowKpiPopover] = useState(false);
-  const [showDateModal,  setShowDateModal]  = useState(false);
+  const [showDateModal, setShowDateModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
 
   // Custom date range
-  const [customFrom,     setCustomFrom]     = useState(getWeekRange().from);
-  const [customTo,       setCustomTo]       = useState(todayISO());
+  const [customFrom, setCustomFrom] = useState(getWeekRange().from);
+  const [customTo, setCustomTo] = useState(todayISO());
   const [calendarTarget, setCalendarTarget] = useState<"from" | "to">("from");
-  const [pendingFrom,    setPendingFrom]    = useState(getWeekRange().from);
-  const [pendingTo,      setPendingTo]      = useState(todayISO());
+  const [pendingFrom, setPendingFrom] = useState(getWeekRange().from);
+  const [pendingTo, setPendingTo] = useState(todayISO());
 
-  // Notifications — in a real app these come from a push/socket service
-  const [notifications, setNotifications]  = useState<LoginNotification[]>([]);
+  // Notifications
+  const [notifications, setNotifications] = useState<LoginNotification[]>([]);
 
   // Data state
-  const [kpis,         setKpis]         = useState<DashboardKpis | null>(null);
-  const [chartData,    setChartData]    = useState<ChartDataset | null>(null);
-  const [employees,    setEmployees]    = useState<EmpWithSales[]>([]);
-  const [kpiLoading,   setKpiLoading]   = useState(true);
+  const [kpis, setKpis] = useState<DashboardKpis | null>(null);
+  const [chartData, setChartData] = useState<ChartDataset | null>(null);
+  const [employees, setEmployees] = useState<EmpWithSales[]>([]);
+  const [kpiLoading, setKpiLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(true);
-  const [empLoading,   setEmpLoading]   = useState(true);
+  const [empLoading, setEmpLoading] = useState(true);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ── Simulate login notifications when employees load ─────────────────────
-  // In production, replace this with your WebSocket/push listener
-  useEffect(() => {
-    if (!employees.length) return;
-    const online = employees.filter(e => e.online && e.status === "active");
-    const notifs: LoginNotification[] = online.map((e, i) => ({
-      id:           `notif-${e.id}`,
-      employeeId:   e.id,
-      employeeName: e.fullName,
-      timestamp:    new Date(Date.now() - i * 4 * 60 * 1000), // stagger times
-      read:         false,
-    }));
-    setNotifications(notifs);
-  }, [employees]);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADD THIS CODE BELOW (inside the component)
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  const markAllRead = () =>
+  // Load existing notifications from database
+  const loadNotifications = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      const formatted: LoginNotification[] = (data || []).map((n: any) => ({
+        id: n.id,
+        employeeId: n.employee_id,
+        employeeName: n.employee_name,
+        timestamp: new Date(n.created_at),
+        read: n.read,
+      }));
+
+      setNotifications(formatted);
+    } catch (e) {
+      console.error("Failed to load notifications:", e);
+    }
+  }, []);
+
+  // Load notifications on mount
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  // REAL-TIME CHECK-IN NOTIFICATIONS
+  useEffect(() => {
+    // Subscribe to new checkins
+    const checkinSubscription = supabase
+      .channel("checkins-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "checkins",
+        },
+        async (payload) => {
+          const newCheckin = payload.new;
+          
+          const { data: emp } = await supabase
+            .from("employees")
+            .select("full_name")
+            .eq("id", newCheckin.employee_id)
+            .single();
+
+          if (emp) {
+            const newNotification: LoginNotification = {
+              id: `notif-${newCheckin.id}`,
+              employeeId: newCheckin.employee_id,
+              employeeName: emp.full_name,
+              timestamp: new Date(newCheckin.check_in_time),
+              read: false,
+            };
+
+            setNotifications(prev => [newNotification, ...prev]);
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to employee online status changes
+    const employeeSubscription = supabase
+      .channel("employees-channel")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "employees",
+        },
+        async (payload) => {
+          const updatedEmp = payload.new;
+          const oldEmp = payload.old;
+          
+          if (!oldEmp.online && updatedEmp.online) {
+            const newNotification: LoginNotification = {
+              id: `notif-online-${updatedEmp.id}-${Date.now()}`,
+              employeeId: updatedEmp.id,
+              employeeName: updatedEmp.full_name,
+              timestamp: new Date(),
+              read: false,
+            };
+
+            setNotifications(prev => [newNotification, ...prev]);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      checkinSubscription.unsubscribe();
+      employeeSubscription.unsubscribe();
+    };
+  }, []);
+
+  const markAllRead = async () => {
     setNotifications(ns => ns.map(n => ({ ...n, read: true })));
+    
+    await supabase
+      .from("notifications")
+      .update({ read: true })
+      .eq("read", false);
+  };
 
   // ── Load KPIs ─────────────────────────────────────────────────────────────
   const loadKpis = useCallback(async (filter: KpiFilter, from?: string, to?: string) => {
@@ -892,7 +994,9 @@ const styles = StyleSheet.create({
   },
   notifDotText: { fontSize: 8, fontWeight: "800", color: "#fff" },
 
-  scroll:        { flex: 1, backgroundColor: COLORS.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -8 },
+  scroll:        { flex: 1, backgroundColor: COLORS.background, 
+    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
+     marginTop: -8 },
   scrollContent: { paddingTop: 20, paddingHorizontal: 18 },
 
   // ── KPI filter row + popover ──

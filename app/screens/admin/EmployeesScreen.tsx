@@ -818,7 +818,7 @@ const empSt = StyleSheet.create({
 
   body: {
     flex: 1, backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
     paddingTop: 16, paddingHorizontal: 16, marginTop: -8,
   },
 

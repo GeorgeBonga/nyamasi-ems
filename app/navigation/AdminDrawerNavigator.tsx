@@ -10,9 +10,6 @@ import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
 import EmployeesScreen from '../screens/admin/EmployeesScreen';
 import ReportsScreen from '../screens/admin/ReportsScreen';
 import PayrollScreen from '../screens/admin/PayrollScreen';
-import RidersManagementScreen from '../screens/admin/riders/RidersManagementScreen';
-import OrdersManagementScreen from '../screens/admin/deliveries/OrdersManagementScreen';
-
 const Drawer = createDrawerNavigator();
 
 const COLORS = {
@@ -48,10 +45,6 @@ function CustomDrawerContent(props: any) {
     { key: "Payroll", label: "Payroll", icon: DollarSign, screen: "Payroll" },
   ];
 
-  const dispatchItems = [
-    { key: "RidersManagement", label: "Riders", icon: Bike, screen: "RidersManagement" },
-    { key: "OrdersManagement", label: "Orders", icon: ShoppingCart, screen: "OrdersManagement" },
-  ];
 
   return (
     <SafeAreaView style={styles.drawerContainer}>
@@ -106,40 +99,7 @@ function CustomDrawerContent(props: any) {
           );
         })}
 
-        {/* <View style={styles.drawerDivider} />
-         */}
-        {/* <Text style={styles.drawerSection}>DISPATCH</Text>
-        {dispatchItems.map((item) => {
-          const isActive = activeRouteName === item.key;
-          const IconComponent = item.icon;
-          return (
-            <TouchableOpacity
-              key={item.key}
-              style={[
-                styles.drawerItem,
-                isActive && styles.drawerItemActive,
-              ]}
-              onPress={() => handleNavigate(item.screen)}
-              activeOpacity={0.75}
-            >
-              <View style={styles.drawerItemIcon}>
-                <IconComponent 
-                  size={20} 
-                  color={isActive ? COLORS.white : COLORS.drawerText} 
-                />
-              </View>
-              <Text
-                style={[
-                  styles.drawerItemText,
-                  isActive && styles.drawerItemTextActive,
-                ]}
-              >
-                {item.label}
-              </Text>
-              {isActive && <View style={styles.drawerActiveDot} />}
-            </TouchableOpacity>
-          );
-        })} */}
+     
 
         <View style={styles.drawerDivider} />
         
@@ -192,14 +152,6 @@ export default function AdminDrawerNavigator() {
       <Drawer.Screen
         name="Payroll"
         component={PayrollScreen}
-      />
-      <Drawer.Screen
-        name="RidersManagement"
-        component={RidersManagementScreen}
-      />
-      <Drawer.Screen
-        name="OrdersManagement"
-        component={OrdersManagementScreen}
       />
     </Drawer.Navigator>
   );
