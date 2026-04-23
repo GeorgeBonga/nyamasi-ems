@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
 
   body: {
     flex: 1, backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
     marginTop: -10, paddingTop: 20, paddingHorizontal: 18,
   },
 

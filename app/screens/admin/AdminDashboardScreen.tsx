@@ -51,7 +51,7 @@ const CHART_PAD = { left: 42, right: 16, top: 16, bottom: 32 };
 
 const COLORS = {
   primary:       "#8B0111",
-  primaryDark:   "#6B0009",
+  primaryDark:   "#8B0111",
   primaryMuted:  "rgba(139,1,17,0.09)",
   primaryLight:  "#fdf0f1",
   white:         "#FFFFFF",
@@ -462,75 +462,140 @@ const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
   }, [loadNotifications]);
 
   // REAL-TIME CHECK-IN NOTIFICATIONS
-  useEffect(() => {
-    // Subscribe to new checkins
-    const checkinSubscription = supabase
-      .channel("checkins-channel")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "checkins",
-        },
-        async (payload) => {
-          const newCheckin = payload.new;
+  // useEffect(() => {
+  //   // Subscribe to new checkins
+  //   const checkinSubscription = supabase
+  //     .channel("checkins-channel")
+  //     .on(
+  //       "postgres_changes",
+  //       {
+  //         event: "INSERT",
+  //         schema: "public",
+  //         table: "checkins",
+  //       },
+  //       async (payload) => {
+  //         const newCheckin = payload.new;
           
-          const { data: emp } = await supabase
-            .from("employees")
-            .select("full_name")
-            .eq("id", newCheckin.employee_id)
-            .single();
+  //         const { data: emp } = await supabase
+  //           .from("employees")
+  //           .select("full_name")
+  //           .eq("id", newCheckin.employee_id)
+  //           .single();
 
-          if (emp) {
-            const newNotification: LoginNotification = {
-              id: `notif-${newCheckin.id}`,
-              employeeId: newCheckin.employee_id,
-              employeeName: emp.full_name,
-              timestamp: new Date(newCheckin.check_in_time),
-              read: false,
-            };
+  //         if (emp) {
+  //           const newNotification: LoginNotification = {
+  //             id: `notif-${newCheckin.id}`,
+  //             employeeId: newCheckin.employee_id,
+  //             employeeName: emp.full_name,
+  //             timestamp: new Date(newCheckin.check_in_time),
+  //             read: false,
+  //           };
 
-            setNotifications(prev => [newNotification, ...prev]);
-          }
-        }
-      )
-      .subscribe();
+  //           setNotifications(prev => [newNotification, ...prev]);
+  //         }
+  //       }
+  //     )
+  //     .subscribe();
 
-    // Subscribe to employee online status changes
-    const employeeSubscription = supabase
-      .channel("employees-channel")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "employees",
-        },
-        async (payload) => {
-          const updatedEmp = payload.new;
-          const oldEmp = payload.old;
+  //   // Subscribe to employee online status changes
+  //   const employeeSubscription = supabase
+  //     .channel("employees-channel")
+  //     .on(
+  //       "postgres_changes",
+  //       {
+  //         event: "UPDATE",
+  //         schema: "public",
+  //         table: "employees",
+  //       },
+  //       async (payload) => {
+  //         const updatedEmp = payload.new;
+  //         const oldEmp = payload.old;
           
-          if (!oldEmp.online && updatedEmp.online) {
-            const newNotification: LoginNotification = {
-              id: `notif-online-${updatedEmp.id}-${Date.now()}`,
-              employeeId: updatedEmp.id,
-              employeeName: updatedEmp.full_name,
-              timestamp: new Date(),
-              read: false,
-            };
+  //         if (!oldEmp.online && updatedEmp.online) {
+  //           const newNotification: LoginNotification = {
+  //             id: `notif-online-${updatedEmp.id}-${Date.now()}`,
+  //             employeeId: updatedEmp.id,
+  //             employeeName: updatedEmp.full_name,
+  //             timestamp: new Date(),
+  //             read: false,
+  //           };
 
-            setNotifications(prev => [newNotification, ...prev]);
-          }
+  //           setNotifications(prev => [newNotification, ...prev]);
+  //         }
+  //       }
+  //     )
+  //     .subscribe();
+
+  //   return () => {
+  //     checkinSubscription.unsubscribe();
+  //     employeeSubscription.unsubscribe();
+  //   };
+  // }, []);
+
+  // REAL-TIME NOTIFICATIONS - Combined into single channel
+useEffect(() => {
+  // Create ONE channel for all real-time updates
+  const channel = supabase
+    .channel("admin-notifications")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "checkins",
+      },
+      async (payload) => {
+        const newCheckin = payload.new;
+        
+        const { data: emp } = await supabase
+          .from("employees")
+          .select("full_name")
+          .eq("id", newCheckin.employee_id)
+          .single();
+
+        if (emp) {
+          const newNotification: LoginNotification = {
+            id: `notif-${newCheckin.id}`,
+            employeeId: newCheckin.employee_id,
+            employeeName: emp.full_name,
+            timestamp: new Date(newCheckin.check_in_time),
+            read: false,
+          };
+
+          setNotifications(prev => [newNotification, ...prev]);
         }
-      )
-      .subscribe();
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "employees",
+      },
+      async (payload) => {
+        const updatedEmp = payload.new;
+        const oldEmp = payload.old;
+        
+        if (!oldEmp.online && updatedEmp.online) {
+          const newNotification: LoginNotification = {
+            id: `notif-online-${updatedEmp.id}-${Date.now()}`,
+            employeeId: updatedEmp.id,
+            employeeName: updatedEmp.full_name,
+            timestamp: new Date(),
+            read: false,
+          };
 
-    return () => {
-      checkinSubscription.unsubscribe();
-      employeeSubscription.unsubscribe();
-    };
-  }, []);
+          setNotifications(prev => [newNotification, ...prev]);
+        }
+      }
+    )
+    .subscribe(); // ✅ Only ONE subscribe call for the whole channel
+
+  return () => {
+    channel.unsubscribe();
+  };
+}, []);
 
   const markAllRead = async () => {
     setNotifications(ns => ns.map(n => ({ ...n, read: true })));
@@ -849,7 +914,7 @@ const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
             <View style={styles.sheetHeader}>
               <View>
                 <Text style={styles.sheetTitle}>Notifications</Text>
-                <Text style={styles.sheetSub}>{notifications.length} employee logins today</Text>
+                <Text style={styles.sheetSub}>{notifications.length} employee logins</Text>
               </View>
               <TouchableOpacity onPress={() => setShowNotifModal(false)} style={styles.sheetCloseBtn}>
                 <X size={18} color={COLORS.textSecondary} />

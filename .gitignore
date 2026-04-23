@@ -8,7 +8,7 @@ node_modules_bak/
 dist/
 web-build/
 expo-env.d.ts
-
+.env
 # Native
 .kotlin/
 *.orig.*

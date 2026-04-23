@@ -14,6 +14,9 @@
 
 import { createClient } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
+
 
 // ─── Client init ─────────────────────────────────────────────────────────────
 
@@ -365,6 +368,41 @@ export interface LoginResult {
   error?: string;
 }
 
+// export const login = async (phone: string, password: string): Promise<LoginResult> => {
+//   await delay(400);
+
+//   const { data, error } = await supabase.rpc("login_with_phone", {
+//     p_phone: phone,
+//     p_password: password,
+//   });
+
+//   if (error || !data?.success) {
+//     return {
+//       success: false,
+//       user: null,
+//       employee: null,
+//       error: data?.error ?? "Invalid credentials",
+//     };
+//   }
+
+//   const u = data.user;
+//   const e = data.employee;
+
+//   const user: User = {
+//     id: u.id,
+//     phone: u.phone,
+//     password: "",
+//     role: u.role,
+//     employeeId: u.employee_id ?? undefined,
+//     active: u.active,
+//     createdAt: u.created_at,
+//   };
+
+//   const employee = e ? mapEmployee(e) : null;
+
+//   return { success: true, user, employee };
+// };
+
 export const login = async (phone: string, password: string): Promise<LoginResult> => {
   await delay(400);
 
@@ -385,6 +423,25 @@ export const login = async (phone: string, password: string): Promise<LoginResul
   const u = data.user;
   const e = data.employee;
 
+  // ✅ If employee, set online status and create notification
+  if (e && u.role === "employee") {
+    await supabase
+      .from("employees")
+      .update({ online: true })
+      .eq("id", e.id);
+    
+    // Create login notification
+    await supabase.from("notifications").insert({
+      type: "login",
+      title: "Employee Logged In",
+      body: `${e.full_name} logged in`,
+      employee_id: e.id,
+      employee_name: e.full_name,
+      read: false,
+      created_at: new Date().toISOString(),
+    });
+  }
+
   const user: User = {
     id: u.id,
     phone: u.phone,
@@ -401,6 +458,46 @@ export const login = async (phone: string, password: string): Promise<LoginResul
 };
 
 export const logout = async (): Promise<void> => {
+  // Get current user session to know who is logging out
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (user) {
+    // Get employee_id from app_users
+    const { data: appUser } = await supabase
+      .from("app_users")
+      .select("employee_id")
+      .eq("id", user.id)
+      .single();
+    
+    if (appUser?.employee_id) {
+      // Set employee offline
+      await supabase
+        .from("employees")
+        .update({ online: false })
+        .eq("id", appUser.employee_id);
+      
+      // Create logout notification
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("full_name")
+        .eq("id", appUser.employee_id)
+        .single();
+      
+      if (emp) {
+        await supabase.from("notifications").insert({
+          type: "logout",
+          title: "Employee Logged Out",
+          body: `${emp.full_name} logged out`,
+          employee_id: appUser.employee_id,
+          employee_name: emp.full_name,
+          read: false,
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+  }
+  
+  // Sign out from Supabase
   await supabase.auth.signOut();
 };
 
@@ -829,6 +926,13 @@ export interface ProductEntry {
   qty: number;
 }
 
+
+
+
+
+
+// ─── FIXED addReport FUNCTION WITH PROPER IMAGE HANDLING ─────────────────────
+
 export interface AddReportInput {
   employeeId: string;
   products: ProductEntry[];
@@ -850,18 +954,22 @@ export interface AddReportResult {
   error?: string;
 }
 
+
 export const addReport = async (input: AddReportInput): Promise<AddReportResult> => {
   await delay(300);
+  
+  console.log(' Starting report submission...');
+  console.log('Employee ID:', input.employeeId);
+  console.log('Products:', input.products.length);
+  console.log('Has photo:', !!input.photoUri);
 
-  // if (!input.photoUri || input.photoUri.trim() === "") {
-  //   return { success: false, error: "A sales photo is required before submitting." };
-  // }
-
+  // Validate products
   const nonZeroProducts = input.products.filter((p) => p.qty > 0);
   if (nonZeroProducts.length === 0) {
     return { success: false, error: "Enter at least one product quantity." };
   }
 
+  // Calculate totals
   const items: ProductLineItem[] = nonZeroProducts.map(({ sku, qty }) => {
     const product = PRODUCTS.find((p) => p.sku === sku)!;
     return { sku, qty, unitPrice: product.unitPrice, subtotal: product.unitPrice * qty };
@@ -870,6 +978,9 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
   const totalItems = items.reduce((s, l) => s + l.qty, 0);
   const totalAmount = items.reduce((s, l) => s + l.subtotal, 0);
 
+  console.log(`Total amount: ${totalAmount}, Items: ${totalItems}`);
+
+  // Validate payment
   const paymentTotal = input.cash + input.mpesa + input.debt;
   if (paymentTotal !== totalAmount) {
     return {
@@ -878,10 +989,29 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
     };
   }
 
+  // Handle photo upload if provided
+  let uploadedPhotoUrl: string | null = null;
+  if (input.photoUri && input.photoUri.trim() !== "") {
+    console.log('📸 Photo provided, attempting to upload...');
+    const dateISO = input.dateISO ?? todayISO();
+    uploadedPhotoUrl = await uploadReportPhoto(input.employeeId, input.photoUri, dateISO);
+    
+    if (!uploadedPhotoUrl) {
+      console.warn('Photo upload failed, but continuing without photo');
+      // Don't fail the report if photo upload fails
+    } else {
+      console.log('Photo uploaded successfully:', uploadedPhotoUrl);
+    }
+  } else {
+    console.log('No photo provided');
+  }
+
+  // Prepare report data
   const lateFlag = isLateSubmission();
   const dateISO = input.dateISO ?? todayISO();
   const now = new Date().toISOString();
 
+  // Insert report using RPC
   const { data, error } = await supabase.rpc("submit_report", {
     p_employee_id: input.employeeId,
     p_date_iso: dateISO,
@@ -895,18 +1025,32 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
     p_location: input.location,
     p_coords_lat: input.coords?.latitude ?? null,
     p_coords_lng: input.coords?.longitude ?? null,
-    p_photo_uri: input.photoUri,
+    p_photo_uri: uploadedPhotoUrl, // Use the uploaded URL
   });
 
-  if (error) return { success: false, error: error.message };
-  if (!data?.success) return { success: false, error: data?.error };
+  if (error) {
+    console.error('❌ RPC error:', error);
+    return { success: false, error: error.message };
+  }
+  
+  if (!data?.success) {
+    console.error('❌ RPC returned failure:', data?.error);
+    return { success: false, error: data?.error };
+  }
 
-  const report = (await getReportsByEmployee(input.employeeId)).find(
-    (r) => r.id === data.reportId
-  );
+  console.log('✅ Report submitted successfully:', data.reportId);
+
+
+  await updatePayrollFromReports(input.employeeId, dateISO);
+
+
+  // Fetch the created report
+  const reports = await getReportsByEmployee(input.employeeId);
+  const report = reports.find((r) => r.id === data.reportId);
 
   return { success: true, report };
 };
+
 
 export const approveReport = async (reportId: string): Promise<boolean> => {
   await delay(200);
@@ -1966,25 +2110,769 @@ export const getHydratedReports = async (
     }));
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  PHOTO UPLOAD
-// ─────────────────────────────────────────────────────────────────────────────
 
+// ─── IMAGE UPLOAD WITH COMPRESSION ─────────────────────────────────────────────
+// ─── IMAGE UPLOAD WITH COMPRESSION ─────────────────────────────────────────────
+
+/**
+ * Get file size in a cross-platform way
+ */
+const getFileSize = async (uri: string): Promise<number> => {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    return fileInfo.exists ? (fileInfo.size || 0) : 0;
+  } catch (error) {
+    console.error('Error getting file size:', error);
+    return 0;
+  }
+};
+
+/**
+ * Compress image aggressively while maintaining acceptable quality
+ * Reduces file size by 80-95%
+ */
+// export const compressImage = async (
+//   uri: string,
+//   maxWidth: number = 800,
+//   quality: number = 0.3
+// ): Promise<string> => {
+//   try {
+//     console.log('📸 Original image URI:', uri);
+    
+//     // Get original file size
+//     const originalSize = await getFileSize(uri);
+//     console.log(`📊 Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
+    
+//     // Compress and resize
+//     const result = await ImageManipulator.manipulateAsync(
+//       uri,
+//       [
+//         { resize: { width: maxWidth } }, // Resize to max width, height auto
+//       ],
+//       {
+//         compress: quality, // 0.3 = 30% quality
+//         format: ImageManipulator.SaveFormat.JPEG,
+//         base64: false, // Don't return base64 to save memory
+//       }
+//     );
+    
+//     // Get compressed file size
+//     const compressedSize = await getFileSize(result.uri);
+//     console.log(`📊 Compressed size: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+    
+//     if (originalSize > 0) {
+//       const ratio = ((1 - compressedSize / originalSize) * 100).toFixed(1);
+//       console.log(`✅ Compression ratio: ${ratio}%`);
+//     }
+    
+//     return result.uri;
+//   } catch (error) {
+//     console.error('❌ Image compression failed:', error);
+//     return uri; // Return original if compression fails
+//   }
+// };
+export const compressImage = async (
+  uri: string,
+  maxWidth: number = 800,
+  quality: number = 0.7
+): Promise<string> => {
+  try {
+    console.log('📸 Compressing image...');
+    
+    // Get original file size
+    const originalInfo = await FileSystem.getInfoAsync(uri);
+    console.log(`📊 Original size: ${originalInfo.exists ? (originalInfo.size! / 1024).toFixed(2) : 'unknown'} KB`);
+    
+    // Compress and resize
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: maxWidth } }],
+      {
+        compress: quality,
+        format: ImageManipulator.SaveFormat.JPEG,
+      }
+    );
+    
+    // Verify compressed file exists
+    const compressedInfo = await FileSystem.getInfoAsync(result.uri);
+    console.log(`📊 Compressed size: ${compressedInfo.exists ? (compressedInfo.size! / 1024).toFixed(2) : 'unknown'} KB`);
+    
+    return result.uri;
+  } catch (error) {
+    console.error('❌ Image compression failed:', error);
+    return uri; // Return original if compression fails
+  }
+};
+
+/**
+ * Upload compressed image to Supabase Storage
+ * FIXED: Uses ArrayBuffer instead of blob/file:// URI
+ */
 export const uploadReportPhoto = async (
   employeeId: string,
-  localUri: string
-): Promise<string> => {
-  const response = await fetch(localUri);
-  const blob = await response.blob();
-  const ext = localUri.split(".").pop() ?? "jpg";
-  const path = `${employeeId}/${Date.now()}.${ext}`;
+  localUri: string,
+  dateISO: string
+): Promise<string | null> => {
+  try {
+    if (!localUri) {
+      console.log('⚠️ No photo URI provided');
+      return null;
+    }
+    
+    console.log('🚀 Starting image upload...');
+    console.log('📁 Original URI:', localUri);
+    
+    // Step 1: Compress the image
+    const compressedUri = await compressImage(localUri, 800, 0.7);
+    console.log('✅ Image compressed');
+    
+    // Step 2: Check if file exists
+    const fileInfo = await FileSystem.getInfoAsync(compressedUri);
+    if (!fileInfo.exists) {
+      console.error('❌ Compressed file does not exist');
+      return null;
+    }
+    console.log(`📊 File size: ${(fileInfo.size! / 1024).toFixed(2)} KB`);
+    
+    // Step 3: Convert URI to ArrayBuffer (CRITICAL FIX)
+    const arrayBuffer = await uriToArrayBuffer(compressedUri);
+    console.log(`📦 ArrayBuffer size: ${(arrayBuffer.byteLength / 1024).toFixed(2)} KB`);
+    
+    // Step 4: Create unique file path
+    const timestamp = Date.now();
+    const filePath = `${employeeId}/${dateISO}_${timestamp}.jpg`;
+    console.log('📤 Uploading to:', filePath);
+    
+    // Step 5: Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('report-photos')
+      .upload(filePath, arrayBuffer, {
+        contentType: 'image/jpeg',
+        cacheControl: '2592000',
+        upsert: false,
+      });
+    
+    if (error) {
+      console.error('❌ Storage upload error:', error);
+      
+      // Try with smaller size if it fails
+      console.log('🔄 Retrying with smaller size...');
+      const smallerUri = await compressImage(localUri, 400, 0.5);
+      const smallerBuffer = await uriToArrayBuffer(smallerUri);
+      
+      const { data: retryData, error: retryError } = await supabase.storage
+        .from('report-photos')
+        .upload(filePath, smallerBuffer, {
+          contentType: 'image/jpeg',
+          cacheControl: '2592000',
+          upsert: false,
+        });
+      
+      if (retryError) {
+        console.error('❌ Retry also failed:', retryError);
+        return null;
+      }
+      
+      console.log('✅ Retry successful:', retryData);
+    } else {
+      console.log('✅ Upload successful:', data);
+    }
+    
+    // Step 6: Get public URL
+    const { data: urlData } = supabase.storage
+      .from('report-photos')
+      .getPublicUrl(filePath);
+    
+    console.log('🔗 Public URL:', urlData.publicUrl);
+    
+    return urlData.publicUrl;
+    
+  } catch (error) {
+    console.error('❌ Photo upload failed:', error);
+    return null;
+  }
+};
 
-  const { error } = await supabase.storage
-    .from("report-photos")
-    .upload(path, blob, { contentType: `image/${ext}`, upsert: false });
+/**
+ * Convert file URI to ArrayBuffer (works with file:// URIs)
+ */
+const uriToArrayBuffer = async (uri: string): Promise<Uint8Array> => {
+  try {
+    // Read file as base64
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    
+    // Convert base64 to binary
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    return bytes;
+  } catch (error) {
+    console.error('❌ Failed to convert URI to ArrayBuffer:', error);
+    throw error;
+  }
+};
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SECTION F: PAYROLL (ADD THIS NEW FUNCTION)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GeneratePayrollInput {
+  month: string;  // e.g., "Apr"
+  year: string;   // e.g., "2026"
+}
+
+export interface GeneratePayrollResult {
+  success: boolean;
+  recordsCreated: number;
+  errors: string[];
+}
+
+/**
+ * Generate payroll records for all active employees for a given month/year
+ * Calculates base salary, bonuses based on performance, and attendance
+ */
+export const generatePayroll = async (
+  input: GeneratePayrollInput
+): Promise<GeneratePayrollResult> => {
+  await delay(500);
+  
+  const { month, year } = input;
+  const errors: string[] = [];
+  let recordsCreated = 0;
+  
+  console.log(`🔄 Generating payroll for ${month} ${year}...`);
+  
+  try {
+    // Get all active employees
+    const employees = await getEmployees("active");
+    console.log(`📋 Found ${employees.length} active employees`);
+    
+    // Calculate month range
+    const monthIndex = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(month);
+    if (monthIndex === -1) {
+      return { success: false, recordsCreated: 0, errors: ["Invalid month"] };
+    }
+    
+    const monthNum = String(monthIndex + 1).padStart(2, "0");
+    const monthStart = `${year}-${monthNum}-01`;
+    const lastDay = getLastDayOfMonth(parseInt(year), monthIndex + 1);
+    const monthEnd = `${year}-${monthNum}-${String(lastDay).padStart(2, "0")}`;
+    const totalDaysInMonth = lastDay;
+    
+    // Get all reports for this month
+    const { data: monthReports } = await supabase
+      .from("reports")
+      .select("*")
+      .gte("date_iso", monthStart)
+      .lte("date_iso", monthEnd)
+      .eq("submitted", true);
+    
+    // Get check-ins for attendance calculation
+    const { data: monthCheckins } = await supabase
+      .from("checkins")
+      .select("*")
+      .gte("date", monthStart)
+      .lte("date", monthEnd);
+    
+    for (const emp of employees) {
+      try {
+        // Check if payroll already exists
+        const { data: existing } = await supabase
+          .from("payroll_records")
+          .select("id")
+          .eq("employee_id", emp.id)
+          .eq("period_month", month)
+          .eq("period_year", year)
+          .single();
+        
+        if (existing) {
+          console.log(`⚠️ Payroll already exists for ${emp.fullName}, skipping...`);
+          continue;
+        }
+        
+        // Calculate attendance (days worked)
+        const empCheckins = (monthCheckins || []).filter(c => c.employee_id === emp.id);
+        const uniqueDaysWorked = new Set(empCheckins.map(c => c.date)).size;
+        
+        // Calculate sales performance
+        const empReports = (monthReports || []).filter(r => r.employee_id === emp.id);
+        const totalSalesKES = empReports.reduce((sum, r) => sum + (r.total_amount_kes || 0), 0);
+        const totalItems = empReports.reduce((sum, r) => sum + (r.total_items || 0), 0);
+        
+        // Calculate bonuses
+        const salesBonus = calculateSalesBonus(totalSalesKES, totalItems);
+        const performanceBonus = calculatePerformanceBonus(
+          totalItems, 
+          emp.targets.monthly, 
+          uniqueDaysWorked
+        );
+        
+        // Default allowances (can be customized per employee)
+        const defaultAllowances = [
+          { label: "Transport", amount: 3000 },
+          { label: "Airtime", amount: 1000 },
+        ];
+        
+        // Default deductions
+        const defaultDeductions = [
+          { label: "NHIF", amount: 500 },
+          { label: "NSSF", amount: 200 },
+        ];
+        
+        // const periodLabel = `${month} ${year}`;
+        const now = new Date().toISOString();
+        
+        // Insert payroll record
+        const { data: payrollData, error: payrollError } = await supabase
+          .from("payroll_records")
+          .insert({
+            employee_id: emp.id,
+            period_month: month,
+            period_year: year,
+            // period_label: periodLabel,
+            base_salary: emp.salary.base,
+            sales_bonus: salesBonus,
+            perf_bonus: performanceBonus,
+            days_worked: uniqueDaysWorked,
+            total_days: totalDaysInMonth,
+            status: "draft",
+            generated_at: now,
+            notes: `Auto-generated on ${new Date().toLocaleDateString()}`,
+          })
+          .select()
+          .single();
+        
+        if (payrollError) throw payrollError;
+        
+        // Insert allowances
+        if (defaultAllowances.length > 0) {
+          await supabase.from("payroll_allowances").insert(
+            defaultAllowances.map(a => ({
+              payroll_id: payrollData.id,
+              label: a.label,
+              amount: a.amount,
+            }))
+          );
+        }
+        
+        // Insert deductions
+        if (defaultDeductions.length > 0) {
+          await supabase.from("payroll_deductions").insert(
+            defaultDeductions.map(d => ({
+              payroll_id: payrollData.id,
+              label: d.label,
+              amount: d.amount,
+            }))
+          );
+        }
+        
+        recordsCreated++;
+        console.log(`✅ Generated payroll for ${emp.fullName}`);
+        
+      } catch (error: any) {
+        console.error(`❌ Failed for ${emp.fullName}:`, error.message);
+        errors.push(`${emp.fullName}: ${error.message}`);
+      }
+    }
+    
+    console.log(`🎉 Generated ${recordsCreated} payroll records`);
+    
+    // Create notification for admins
+    if (recordsCreated > 0) {
+      await supabase.from("notifications").insert({
+        type: "payroll_generated",
+        title: "Payroll Generated",
+        body: `Payroll for ${month} ${year} has been generated for ${recordsCreated} employees.`,
+        read: false,
+        created_at: new Date().toISOString(),
+      });
+    }
+    
+    return {
+      success: true,
+      recordsCreated,
+      errors,
+    };
+    
+  } catch (error: any) {
+    console.error("❌ Payroll generation failed:", error);
+    return {
+      success: false,
+      recordsCreated,
+      errors: [...errors, error.message],
+    };
+  }
+};
+
+// Helper: Calculate sales bonus (example: 5% of sales above 50,000 KES)
+const calculateSalesBonus = (totalSalesKES: number, totalItems: number): number => {
+  // Example logic: 2% of total sales as bonus
+  return Math.round(totalSalesKES * 0.02);
+};
+
+// Helper: Calculate performance bonus
+const calculatePerformanceBonus = (
+  itemsSold: number, 
+  monthlyTarget: number, 
+  daysWorked: number
+): number => {
+  const achievement = (itemsSold / monthlyTarget) * 100;
+  
+  if (achievement >= 100) {
+    return 5000; // Hit target = 5,000 KES bonus
+  } else if (achievement >= 80) {
+    return 2500; // 80%+ = 2,500 KES bonus
+  } else if (achievement >= 50) {
+    return 1000; // 50%+ = 1,000 KES bonus
+  }
+  
+  return 0;
+};
+
+/**
+ * Generate payroll for all months up to current month (for initial setup)
+ */
+export const generateAllMissingPayroll = async (): Promise<GeneratePayrollResult> => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0-11
+  
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  let totalCreated = 0;
+  const allErrors: string[] = [];
+  
+  // Get the earliest employee join date
+  const employees = await getEmployees();
+  const earliestJoin = employees.reduce((earliest, emp) => {
+    const joinDate = new Date(emp.joinDateISO);
+    return joinDate < earliest ? joinDate : earliest;
+  }, new Date());
+  
+  const startYear = earliestJoin.getFullYear();
+  const startMonth = earliestJoin.getMonth();
+  
+  // Generate for all months from earliest employee to current month
+  for (let year = startYear; year <= currentYear; year++) {
+    const monthStart = (year === startYear) ? startMonth : 0;
+    const monthEnd = (year === currentYear) ? currentMonth : 11;
+    
+    for (let monthIdx = monthStart; monthIdx <= monthEnd; monthIdx++) {
+      const result = await generatePayroll({
+        month: months[monthIdx],
+        year: String(year),
+      });
+      
+      totalCreated += result.recordsCreated;
+      allErrors.push(...result.errors);
+    }
+  }
+  
+  return {
+    success: allErrors.length === 0,
+    recordsCreated: totalCreated,
+    errors: allErrors,
+  };
+};
+
+
+export const generatePayrollRPC = async (month: string, year: string) => {
+  const { data, error } = await supabase.rpc("generate_monthly_payroll", {
+    p_month: month,
+    p_year: year,
+  });
+  
   if (error) throw error;
+  return data;
+};
 
-  const { data } = supabase.storage.from("report-photos").getPublicUrl(path);
-  return data.publicUrl;
+// ─────────────────────────────────────────────────────────────────────────────
+//  AUTO-CALCULATE PAYROLL FROM REPORTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Update or create payroll record based on actual reports
+ * Call this after every report submission
+ */
+export const updatePayrollFromReports = async (
+  employeeId: string,
+  reportDateISO?: string
+): Promise<PayrollRecord | null> => {
+  try {
+    // Get the month/year from the report date (or current date)
+    const date = reportDateISO ? new Date(reportDateISO) : new Date();
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const month = monthNames[date.getMonth()];
+    const year = date.getFullYear().toString();
+    
+    console.log(`🔄 Updating payroll for ${employeeId} - ${month} ${year}`);
+    
+    // Get employee details
+    const employee = await getEmployeeById(employeeId);
+    if (!employee) {
+      console.error('Employee not found');
+      return null;
+    }
+    
+    // Calculate month range
+    const monthNum = String(date.getMonth() + 1).padStart(2, "0");
+    const monthStart = `${year}-${monthNum}-01`;
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    const monthEnd = `${year}-${monthNum}-${String(lastDay).padStart(2, "0")}`;
+    
+    // Get all reports for this employee this month
+    const { data: monthReports } = await supabase
+      .from("reports")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .gte("date_iso", monthStart)
+      .lte("date_iso", monthEnd)
+      .eq("submitted", true);
+    
+    // Get check-ins for attendance
+    const { data: monthCheckins } = await supabase
+      .from("checkins")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .gte("date", monthStart)
+      .lte("date", monthEnd);
+    
+    // Calculate metrics
+    const daysWorked = new Set(monthCheckins?.map(c => c.date) || []).size;
+    const totalDays = lastDay;
+    
+    const totalSalesKES = (monthReports || []).reduce((sum, r) => sum + (r.total_amount_kes || 0), 0);
+    const totalItems = (monthReports || []).reduce((sum, r) => sum + (r.total_items || 0), 0);
+    const totalCash = (monthReports || []).reduce((sum, r) => sum + (r.cash || 0), 0);
+    const totalMpesa = (monthReports || []).reduce((sum, r) => sum + (r.mpesa || 0), 0);
+    
+    // Calculate bonuses based on performance
+    const monthlyTarget = employee.targets.monthly;
+    const achievement = (totalItems / monthlyTarget) * 100;
+    
+    // Sales bonus: 2% of total sales
+    const salesBonus = Math.round(totalSalesKES * 0.02);
+    
+    // Performance bonus based on target achievement
+    let performanceBonus = 0;
+    if (achievement >= 100) performanceBonus = 5000;
+    else if (achievement >= 80) performanceBonus = 3000;
+    else if (achievement >= 60) performanceBonus = 1500;
+    else if (achievement >= 40) performanceBonus = 500;
+    
+    // Calculate allowances
+    const transportAllowance = daysWorked * 150; // KES 150 per day worked
+    const airtimeAllowance = 600; // Fixed monthly
+    
+    // Calculate deductions
+    const nhif = calculateNHIF(employee.salary.base);
+    const nssf = 1080; // Standard NSSF
+    const paye = calculatePAYE(employee.salary.base + salesBonus + performanceBonus);
+    
+    // const periodLabel = `${month} ${year}`;
+    const now = new Date().toISOString();
+
+
+    // Check if payroll record exists
+const { data: existing } = await supabase
+  .from("payroll_records")
+  .select("id, status")
+  .eq("employee_id", employeeId)
+  .eq("period_month", month)
+  .eq("period_year", year)
+  .single();
+
+let payrollId: string;
+
+if (existing) {
+  // Update existing record (only if not paid)
+  if (existing.status === "paid") {
+    console.log('⚠️ Payroll already paid, skipping update');
+    return null;
+  }
+  
+  payrollId = existing.id;
+  
+  // Update main record
+  await supabase
+    .from("payroll_records")
+    .update({
+      base_salary: employee.salary.base,
+      sales_bonus: salesBonus,
+      perf_bonus: performanceBonus,
+      days_worked: daysWorked,
+      total_days: totalDays,
+      generated_at: now,
+    })
+    .eq("id", payrollId);
+  
+  // Delete old allowances/deductions
+  await supabase.from("payroll_allowances").delete().eq("payroll_id", payrollId);
+  await supabase.from("payroll_deductions").delete().eq("payroll_id", payrollId);
+  
+  console.log('📝 Updated existing payroll record');
+} else {
+  // ✅ Generate new payroll ID
+  const { count, error: countError } = await supabase
+    .from("payroll_records")
+    .select("*", { count: "exact", head: true });
+    
+  if (countError) {
+    console.error('❌ Count error:', countError);
+    throw countError;
+  }
+  
+  payrollId = `p${String((count ?? 0) + 1).padStart(3, "0")}`;
+  
+  // Create new record with ID
+  const { data: newRecord, error } = await supabase
+    .from("payroll_records")
+    .insert({
+      id: payrollId,  // ✅ Explicit ID
+      employee_id: employeeId,
+      period_month: month,
+      period_year: year,
+      base_salary: employee.salary.base,
+      sales_bonus: salesBonus,
+      perf_bonus: performanceBonus,
+      days_worked: daysWorked,
+      total_days: totalDays,
+      status: "draft",
+      generated_at: now,
+      notes: `Auto-generated from ${monthReports?.length || 0} reports`,
+    })
+    .select()
+    .single();
+  
+  if (error) throw error;
+  console.log('📝 Created new payroll record:', payrollId);
+}
+
+    
+    // Insert allowances
+    const allowances = [
+      { label: "Transport", amount: transportAllowance },
+      { label: "Airtime", amount: airtimeAllowance },
+    ].filter(a => a.amount > 0);
+    
+    if (allowances.length > 0) {
+      await supabase.from("payroll_allowances").insert(
+        allowances.map(a => ({
+          payroll_id: payrollId,
+          label: a.label,
+          amount: a.amount,
+        }))
+      );
+    }
+    
+    // Insert deductions
+    const deductions = [
+      { label: "NHIF", amount: nhif },
+      { label: "NSSF", amount: nssf },
+      { label: "PAYE", amount: paye },
+    ].filter(d => d.amount > 0);
+    
+    if (deductions.length > 0) {
+      await supabase.from("payroll_deductions").insert(
+        deductions.map(d => ({
+          payroll_id: payrollId,
+          label: d.label,
+          amount: d.amount,
+        }))
+      );
+    }
+    
+    console.log(`✅ Payroll updated: Net = KES ${calculateNetFromData(employee.salary.base, salesBonus, performanceBonus, allowances, deductions)}`);
+    
+    // Return the updated record
+    return await getPayrollRecordById(payrollId);
+    
+  } catch (error) {
+    console.error('❌ Failed to update payroll:', error);
+    return null;
+  }
+};
+
+// Helper: Calculate NHIF based on salary (Kenya rates)
+const calculateNHIF = (grossSalary: number): number => {
+  if (grossSalary <= 5999) return 150;
+  if (grossSalary <= 7999) return 300;
+  if (grossSalary <= 11999) return 400;
+  if (grossSalary <= 14999) return 500;
+  if (grossSalary <= 19999) return 600;
+  if (grossSalary <= 24999) return 750;
+  if (grossSalary <= 29999) return 850;
+  if (grossSalary <= 34999) return 900;
+  if (grossSalary <= 39999) return 950;
+  if (grossSalary <= 44999) return 1000;
+  if (grossSalary <= 49999) return 1100;
+  if (grossSalary <= 59999) return 1200;
+  if (grossSalary <= 69999) return 1300;
+  if (grossSalary <= 79999) return 1400;
+  if (grossSalary <= 89999) return 1500;
+  if (grossSalary <= 99999) return 1600;
+  return 1700; // 100,000+
+};
+
+// Helper: Calculate PAYE (simplified Kenya rates)
+const calculatePAYE = (taxableIncome: number): number => {
+  // Simplified PAYE calculation
+  if (taxableIncome <= 24000) return 0;
+  if (taxableIncome <= 32333) return Math.round((taxableIncome - 24000) * 0.10);
+  if (taxableIncome <= 50000) return Math.round(833 + (taxableIncome - 32333) * 0.15);
+  if (taxableIncome <= 80000) return Math.round(3483 + (taxableIncome - 50000) * 0.20);
+  return Math.round(9483 + (taxableIncome - 80000) * 0.25);
+};
+
+// Helper: Calculate net from components
+const calculateNetFromData = (
+  baseSalary: number,
+  salesBonus: number,
+  performanceBonus: number,
+  allowances: { amount: number }[],
+  deductions: { amount: number }[]
+): number => {
+  const gross = baseSalary + salesBonus + performanceBonus + 
+                allowances.reduce((s, a) => s + a.amount, 0);
+  const totalDeductions = deductions.reduce((s, d) => s + d.amount, 0);
+  return gross - totalDeductions;
+};
+
+// Helper: Get single payroll record
+const getPayrollRecordById = async (id: string): Promise<PayrollRecord | null> => {
+  const { data } = await supabase
+    .from("payroll_records")
+    .select("*")
+    .eq("id", id)
+    .single();
+  return data ? hydratePayroll(data) : null;
+};
+
+/**
+ *  payroll for entire month 
+ */
+export const regenerateMonthlyPayroll = async (
+  month: string,
+  year: string
+): Promise<{ success: boolean; updated: number }> => {
+  const employees = await getEmployees("active");
+  let updated = 0;
+  
+  for (const emp of employees) {
+    const result = await updatePayrollFromReports(emp.id, `${year}-${month}-15`);
+    if (result) updated++;
+  }
+  
+  return { success: true, updated };
 };

@@ -74,7 +74,7 @@ async function getLogoBase64(): Promise<string> {
 const COLORS = {
   primary:         "#8B0111",
   primaryDark:     "#8B0111",
-  primaryDeep:     "#6B0009",
+  primaryDeep:     "#8B0111",
   primaryMuted:    "rgba(139,1,17,0.08)",
   primaryLight:    "rgba(139,1,17,0.15)",
   white:           "#FFFFFF",

@@ -4,6 +4,8 @@ import { createDrawerNavigator, DrawerContentScrollView } from '@react-navigatio
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Home, Users, FileText, DollarSign, Bike, ShoppingCart, LogOut } from 'lucide-react-native';
+import { useLoader } from '../context/LoaderContext';
+import { logout } from '../data/dbService';
 
 // Screens
 import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
@@ -29,9 +31,13 @@ const COLORS = {
 function CustomDrawerContent(props: any) {
   const { state, navigation } = props;
   const activeRouteName = state.routes[state.index].name;
+    const { withLoader } = useLoader();
 
-  const handleLogout = () => {
-    navigation.replace('Login');
+  const handleLogout = async () => {  
+    await withLoader(async () => {    
+      await logout();                
+      navigation.navigate('Login');
+    });
   };
 
   const handleNavigate = (screenName: string) => {

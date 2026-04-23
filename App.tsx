@@ -7,58 +7,81 @@ import { NavigationContainer } from "@react-navigation/native";
 import GlobalLoader from "./components/GlobalLoader";
 import * as Notifications from "expo-notifications";
 import { useEffect } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 export default function App() {
 
-  useEffect(() => {
+
+
+useEffect(() => {
   const setupNotifications = async () => {
-    // Check if already scheduled
-    const scheduled = await AsyncStorage.getItem("@notifications_scheduled");
-    if (scheduled === "true") {
-      console.log("Notifications already scheduled");
-      return;
-    }
+    try {
+      // Request permissions
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Notification permissions not granted');
+        return;
+      }
 
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== "granted") return;
+      // Set up Android channel
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'Default',
+          importance: Notifications.AndroidImportance.DEFAULT,
+        });
+      }
 
-    // Android channel
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("daily-reminder", {
-        name: "Daily Report Reminder",
-        importance: Notifications.AndroidImportance.HIGH,
-        sound: "default",
-        vibrationPattern: [0, 250, 250, 250],
-      });
-    }
+      // Cancel any existing scheduled notifications (optional - for clean testing)
+      await Notifications.cancelAllScheduledNotificationsAsync();
 
-    await Notifications.cancelAllScheduledNotificationsAsync();
+      // Check existing notifications
+      const existing = await Notifications.getAllScheduledNotificationsAsync();
+      
+      if (existing.length > 0) {
+        console.log('Notifications already scheduled:', existing.length);
+        return;
+      }
 
-    // Schedule for 6 PM Kenya time (UTC+3)
-    // 6 PM EAT = 3 PM UTC
-    await Notifications.scheduleNotificationAsync({
-      content: {
+      // Schedule the daily notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
         title: "Daily Report Reminder",
         body: "It's 6 PM — remember to submit your daily sales report before 7 PM!",
-        sound: "default",
-        badge: 1,
-      },
-      trigger: {
-       channelId: "daily-reminder",
-        hour: 15, // 3 PM UTC = 6 PM EAT
-        minute: 0,
-        repeats: true,
-      },
-    });
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY, // Critical: prevents immediate firing
+          channelId: Platform.OS === 'android' ? 'default' : undefined,
+          hour: 18,
+          minute: 0,
+         
+        },
+      });
 
-    // Mark as scheduled
-    await AsyncStorage.setItem("@notifications_scheduled", "true");
-    console.log("Daily notification scheduled for 6 PM EAT");
+      console.log('✅ Notification scheduled for 6:00 PM daily');
+
+    } catch (error) {
+      console.error('Error setting up notifications:', error);
+    }
   };
 
+  // Set notification handler (runs when notification is received)
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+
   setupNotifications();
+
+  // Optional: Cleanup function
+  return () => {
+    // Add cleanup logic here if needed (e.g., removing listeners)
+  };
 }, []);
+
+
   const [fontsLoaded] = useFonts({
     DancingScript: DancingScript,
   });

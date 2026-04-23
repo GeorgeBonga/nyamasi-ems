@@ -27,7 +27,7 @@ import LocationPickerModal from "../../../components/LocationPickerModal";
 
 // ─── Constants (unchanged) ────────────────────────────────────────────────────
 const COLORS = {
-  primary: "#8B0111", primaryDark: "#8B0111", primaryDeep: "#6B0009",
+  primary: "#8B0111", primaryDark: "#8B0111", primaryDeep: "#8B0111",
   primaryMuted: "rgba(139,1,17,0.08)", primaryLight: "rgba(139,1,17,0.15)",
   white: "#FFFFFF", background: "#F0F5FB", cardBg: "#FFFFFF",
   textPrimary: "#0D2137", textSecondary: "#4A6580", textMuted: "#8FA3B8",

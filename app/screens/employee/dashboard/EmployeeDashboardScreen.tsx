@@ -40,6 +40,7 @@ import {
   addReport,
   PRODUCTS,
   Employee,
+  logout,
   EmployeeTodaySummary,
   ProductSKU,
 } from "../../../data/dbService";
@@ -152,6 +153,8 @@ const MonthlyProgress: React.FC<{ sales: number; salesKES: number; target: numbe
   );
 };
 
+
+
 // ─── Report Modal ─────────────────────────────────────────────────────────────
 interface ReportModalProps {
   visible:    boolean;
@@ -165,9 +168,11 @@ interface ReportModalProps {
     photoUri:  string | null
   ) => Promise<void>;
   submitting: boolean;
+  submitted:  boolean;
+
 }
 
-const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, submitting }) => {
+const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, submitting,submitted  }) => {
   const initialQtys = (): ProductQtys => {
     const m: ProductQtys = {};
     PRODUCTS.forEach((p) => { m[p.sku] = ""; });
@@ -236,12 +241,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
-    // 1. Photo required
-    // if (!photoUri) {
-    //   Alert.alert("Photo Required", "Please upload a sales photo before submitting.");
-    //   return;
-    // }
-
+   
     // 2. At least one product
     if (totalItems === 0) {
       Alert.alert("No Products", "Enter at least one product quantity.");
@@ -477,22 +477,34 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
             </View>
 
             {/* ── ACTIONS ── */}
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.75}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.submitBtn, submitting && { opacity: 0.7 }]}
-                onPress={handleSubmit}
-                activeOpacity={0.85}
-                disabled={submitting}
-              >
-                {submitting
-                  ? <ActivityIndicator color={COLORS.white} size="small" />
-                  : <Text style={styles.submitBtnText}>Submit Report</Text>
-                }
-              </TouchableOpacity>
-            </View>
+            {/* ── ACTIONS ── */}
+<View style={styles.modalActions}>
+  <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.75}>
+    <Text style={styles.cancelBtnText}>Cancel</Text>
+  </TouchableOpacity>
+  <TouchableOpacity
+    style={[
+      styles.submitBtn,
+      (submitting || submitted) && styles.submitBtnSuccess
+    ]}
+    onPress={handleSubmit}
+    activeOpacity={0.85}
+    disabled={submitting || submitted}
+  >
+    {submitting ? (
+      <ActivityIndicator color={COLORS.white} size="small" />
+    ) : submitted ? (
+      <>
+        <CheckCircle size={18} color={COLORS.white} style={{ marginRight: 6 }} />
+        <Text style={styles.submitBtnText}>Submitted</Text>
+      </>
+    ) : (
+      <Text style={styles.submitBtnText}>Submit Report</Text>
+    )}
+  </TouchableOpacity>
+</View>
+          
+
 
             <View style={{ height: 16 }} />
           </ScrollView>
@@ -555,58 +567,74 @@ useEffect(() => {
   }, []);
 
 
+  const handleLogout = async () => {  
+    await withLoader(async () => {    
+      await logout();                
+      navigation.navigate('Login');
+    });
+  };
+
+
 
 
   // ── Submit daily report ───────────────────────────────────────────────────
-  const handleSubmit = async (
-    products:  { sku: ProductSKU; qty: number }[],
-    payment:   { cash: number; mpesa: number; debt: number },
-    customers: number,
-    samplers:  number,
-    notes:     string,
-    photoUri:  string | null
-  ) => {
-    setSubmitting(true);
-    setModalVisible(false);
-    try {
-      const result = await addReport({
-        employeeId,
-        products,
-        cash:             payment.cash,
-        mpesa:            payment.mpesa,
-        debt:             payment.debt,
-        customersReached: customers,
-        samplersGiven:    samplers,
-        notes,
-        location:         employee?.assignedArea ?? "Unknown",
-        coords:           employee?.lastKnownLocation
-          ? { latitude: employee.lastKnownLocation.latitude, longitude: employee.lastKnownLocation.longitude }
-          : null,
-        photoUri: photoUri ?? "", 
-      });
+ // ── Submit daily report ───────────────────────────────────────────────────
+const handleSubmit = async (
+  products:  { sku: ProductSKU; qty: number }[],
+  payment:   { cash: number; mpesa: number; debt: number },
+  customers: number,
+  samplers:  number,
+  notes:     string,
+  photoUri:  string | null
+) => {
+  setSubmitting(true);
+  try {
+    const result = await addReport({
+      employeeId,
+      products,
+      cash:             payment.cash,
+      mpesa:            payment.mpesa,
+      debt:             payment.debt,
+      customersReached: customers,
+      samplersGiven:    samplers,
+      notes,
+      location:         employee?.assignedArea ?? "Unknown",
+      coords:           employee?.lastKnownLocation
+        ? { latitude: employee.lastKnownLocation.latitude, longitude: employee.lastKnownLocation.longitude }
+        : null,
+      photoUri: photoUri ?? "", 
+    });
 
-      if (!result.success) {
-        Alert.alert("Submission Error", result.error ?? "Please try again.");
-        return;
-      }
-
-      if (result.report?.lateFlag) {
-        Alert.alert(
-          "⚠️ Late Submission",
-          "Your report has been submitted but flagged as late (after 7 PM EAT). Your manager will be notified."
-        );
-      } else {
-        setSubmitted(true);
-        setTimeout(() => setSubmitted(false), 3500);
-      }
-
-      await loadData();
-    } catch {
-      Alert.alert("Error", "Could not submit report. Please try again.");
-    } finally {
+    if (!result.success) {
+      Alert.alert("Submission Error", result.error ?? "Please try again.");
       setSubmitting(false);
+      return;
     }
-  };
+
+    if (result.report?.lateFlag) {
+      Alert.alert(
+        "⚠️ Late Submission",
+        "Your report has been submitted but flagged as late (after 7 PM EAT). Your manager will be notified."
+      );
+    }
+
+    await loadData();
+    
+    // Show success on button
+    setSubmitting(false);
+    setSubmitted(true);
+    
+    // Close modal after showing success
+    setTimeout(() => {
+      setSubmitted(false);
+      setModalVisible(false);
+    }, 1000);
+    
+  } catch {
+    Alert.alert("Error", "Could not submit report. Please try again.");
+    setSubmitting(false);
+  }
+};
 
   // ── Pick profile image ────────────────────────────────────────────────────
   const handlePickImage = async () => {
@@ -642,7 +670,7 @@ useEffect(() => {
           </View>
           <TouchableOpacity
             style={styles.logoutButton}
-            onPress={() => navigation.replace("Login")}
+            onPress={handleLogout}
             activeOpacity={0.7}
           >
             <LogOut size={20} color={COLORS.white} />
@@ -807,18 +835,30 @@ useEffect(() => {
       </ScrollView>
 
       {/* Toast */}
-      {submitted && (
+      {/* {submitted && (
         <View style={styles.toast} pointerEvents="none">
           <Text style={styles.toastText}>Daily report submitted!</Text>
         </View>
-      )}
+      )} */}
 
       {/* Report Modal */}
-      <ReportModal
+      {/* <ReportModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
         onSubmit={handleSubmit}
         submitting={submitting}
+      /> */}
+
+            {/* Report Modal */}
+      <ReportModal
+        visible={modalVisible}
+        onClose={() => {
+          setModalVisible(false);
+          setSubmitted(false);
+        }}
+        onSubmit={handleSubmit}
+        submitting={submitting}
+        submitted={submitted}
       />
     
     </SafeAreaView>
@@ -841,10 +881,16 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.15)",
     alignItems: "center", justifyContent: "center",
   },
-
+  
+  submitBtnSuccess: {
+    backgroundColor: COLORS.success,
+    shadowColor: COLORS.success,
+  },
+submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpacing: 0.3 },
   scroll: {
     flex: 1, backgroundColor: COLORS.background,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -10,
+    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
+     marginTop: -10,
   },
   scrollContent: { paddingTop: 24, paddingHorizontal: 18 },
 
@@ -1066,7 +1112,7 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.primary, shadowOpacity: 0.4,
     shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
-  submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpacing: 0.3 },
+  
 });
 
 export default EmployeeDashboardScreen;

@@ -1,9 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
-import { StyleSheet, Animated, Dimensions, Image } from "react-native";
+import { StyleSheet, Animated, Image, StatusBar } from "react-native";
 import { useLoader } from "../app/context/LoaderContext";
 import Spinner from "../assets/images/spinner.gif";
-
-const { width, height } = Dimensions.get("window");
 
 const GlobalLoader = () => {
   const { loading } = useLoader();
@@ -13,7 +11,9 @@ const GlobalLoader = () => {
 
   useEffect(() => {
     if (loading) {
-      setVisible(true); // Mount first, then animate in
+      setVisible(true);
+      // Hide status bar when loader is visible
+      StatusBar.setHidden(true);
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 1,
@@ -27,7 +27,8 @@ const GlobalLoader = () => {
         }),
       ]).start();
     } else {
-      // Animate out, THEN unmount
+      // Show status bar again
+      StatusBar.setHidden(false);
       Animated.parallel([
         Animated.timing(opacity, {
           toValue: 0,
@@ -39,7 +40,7 @@ const GlobalLoader = () => {
           friction: 8,
           useNativeDriver: true,
         }),
-      ]).start(() => setVisible(false)); // ← unmount only after animation ends
+      ]).start(() => setVisible(false));
     }
   }, [loading]);
 
@@ -58,16 +59,14 @@ export default GlobalLoader;
 
 const styles = StyleSheet.create({
   overlay: {
-    // ✅ Full-screen white background
     position: "absolute",
     top: 0,
     left: 0,
-    width,
-    height,
-    backgroundColor: "#ffffff",
+    right: 0,
+    bottom: 0,                    
+    backgroundColor: "#FFFFFF",    // Match your app's maroon color
     justifyContent: "center",
     alignItems: "center",
-    // ✅ Sit on top of everything
     zIndex: 9999,
     elevation: 9999,
   },

@@ -31,7 +31,7 @@ type CheckInRouteParams = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BRAND      = "#8b0111";
-const BRAND_DARK = "#6a000d";
+const BRAND_DARK = "#8B0111";
 const SUCCESS    = "#00897B";
 const WARNING    = "#F57C00";
 const { height }  = Dimensions.get("window");
@@ -516,9 +516,9 @@ const s = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.15)",
   },
-  navCenter:   { flex: 1, alignItems: "center" },
-  navTitle:    { color: "#fff", fontSize: 16, fontWeight: "600", letterSpacing: 0.3 },
-  navSubtitle: { color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: "500", marginTop: 2 },
+  navCenter:   { flex: 1, paddingEnd: 40 },
+  navTitle:    { color: "#fff", fontSize:18, fontWeight: "600", letterSpacing: 0.3 },
+  navSubtitle: { color: "rgba(255,255,255,0.8)", fontSize: 16, fontWeight: "500", marginTop: 2 },
   navSpacer:   { width: 40 },
 
   content: {

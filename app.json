@@ -22,6 +22,7 @@
       "supportsTablet": true
     },
     "android": {
+        
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -34,7 +35,8 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "INTERNET"
       ],
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan",
