@@ -84,17 +84,12 @@ const getGreeting = (): string => {
   return "Good evening";
 };
 
-
-const formatKES = (n: number): string =>
-  `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 0 })}`;
-
 // ─── Setup notifications ───────────────────────────────────────────────────────
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge:  false,
-
     shouldShowBanner: true,
     shouldShowList: true,
   }),
@@ -102,13 +97,7 @@ Notifications.setNotificationHandler({
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 interface ProductQtys {
-  [sku: string]: string; // raw text input
-}
-
-interface PaymentForm {
-  cash:  string;
-  mpesa: string;
-  debt:  string;
+  [sku: string]: string;
 }
 
 interface StatCardProps {
@@ -131,8 +120,8 @@ const StatCard: React.FC<StatCardProps> = ({ label, value, icon, sub }) => (
 );
 
 // ─── Monthly Target Progress Bar ──────────────────────────────────────────────
-const MonthlyProgress: React.FC<{ sales: number; salesKES: number; target: number }> = ({
-  sales, salesKES, target,
+const MonthlyProgress: React.FC<{ sales: number; target: number }> = ({
+  sales, target,
 }) => {
   const pct   = target > 0 ? Math.min(100, Math.round((sales / target) * 100)) : 0;
   const color = pct >= 100 ? COLORS.success : pct >= 70 ? COLORS.warning : COLORS.primary;
@@ -147,13 +136,10 @@ const MonthlyProgress: React.FC<{ sales: number; salesKES: number; target: numbe
       </View>
       <View style={styles.progressFooter}>
         <Text style={styles.progressSub}>{sales} / {target} units</Text>
-        <Text style={styles.progressKES}>{formatKES(salesKES)}</Text>
       </View>
     </View>
   );
 };
-
-
 
 // ─── Report Modal ─────────────────────────────────────────────────────────────
 interface ReportModalProps {
@@ -169,10 +155,9 @@ interface ReportModalProps {
   ) => Promise<void>;
   submitting: boolean;
   submitted:  boolean;
-
 }
 
-const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, submitting,submitted  }) => {
+const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, submitting, submitted }) => {
   const initialQtys = (): ProductQtys => {
     const m: ProductQtys = {};
     PRODUCTS.forEach((p) => { m[p.sku] = ""; });
@@ -180,24 +165,18 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
   };
 
   const [qtys,      setQtys]      = useState<ProductQtys>(initialQtys);
-  const [payment,   setPayment]   = useState<PaymentForm>({ cash: "", mpesa: "", debt: "" });
   const [customers, setCustomers] = useState("");
   const [samplers,  setSamplers]  = useState("");
   const [notes,     setNotes]     = useState("");
   const [photoUri,  setPhotoUri]  = useState<string | null>(null);
 
-  // ── Computed totals ───────────────────────────────────────────────────────
+  // ── Computed totals (hidden from UI) ──────────────────────────────────────
   const lineItems = PRODUCTS.map((p) => {
     const qty = parseInt(qtys[p.sku] || "0", 10) || 0;
     return { sku: p.sku, name: p.name, qty, unitPrice: p.unitPrice, subtotal: p.unitPrice * qty };
   });
   const totalItems  = lineItems.reduce((s, l) => s + l.qty, 0);
   const totalAmount = lineItems.reduce((s, l) => s + l.subtotal, 0);
-  const paymentEntered =
-    (parseInt(payment.cash  || "0", 10) || 0) +
-    (parseInt(payment.mpesa || "0", 10) || 0) +
-    (parseInt(payment.debt  || "0", 10) || 0);
-  const paymentBalance = totalAmount - paymentEntered;
 
   // ── Photo picker ──────────────────────────────────────────────────────────
   const handlePickPhoto = async () => {
@@ -210,7 +189,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-         quality: 0.8,
+        quality: 0.8,
       });
       if (!result.canceled && result.assets.length > 0) setPhotoUri(result.assets[0].uri);
       return;
@@ -220,7 +199,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
         text: "Take Photo",
         onPress: async () => {
           const r = await ImagePicker.launchCameraAsync({
-           quality: 1,
+            quality: 1,
           });
           if (!r.canceled && r.assets.length > 0) setPhotoUri(r.assets[0].uri);
         },
@@ -230,7 +209,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
         onPress: async () => {
           const r = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
-             quality: 0.8,
+            quality: 0.8,
           });
           if (!r.canceled && r.assets.length > 0) setPhotoUri(r.assets[0].uri);
         },
@@ -241,14 +220,13 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
-   
-    // 2. At least one product
+    // Validate at least one product
     if (totalItems === 0) {
       Alert.alert("No Products", "Enter at least one product quantity.");
       return;
     }
 
-    // 3. Numeric fields
+    // Numeric fields
     const cust = parseInt(customers || "0", 10);
     const samp = parseInt(samplers  || "0", 10);
     if (isNaN(cust) || isNaN(samp)) {
@@ -256,18 +234,10 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
       return;
     }
 
-    // 4. Payment
-    const cash  = parseInt(payment.cash  || "0", 10) || 0;
-    const mpesa = parseInt(payment.mpesa || "0", 10) || 0;
-    const debt  = parseInt(payment.debt  || "0", 10) || 0;
-
-    if (cash + mpesa + debt !== totalAmount) {
-      Alert.alert(
-        "Payment Mismatch",
-        `Cash + M-Pesa + Debt must equal ${formatKES(totalAmount)}.\n\nCurrent: ${formatKES(cash + mpesa + debt)}\nRemaining: ${formatKES(paymentBalance)}`
-      );
-      return;
-    }
+    // Auto-fill payment: all cash, no mpesa, no debt
+    const cash = totalAmount;
+    const mpesa = 0;
+    const debt = 0;
 
     const products = lineItems
       .filter((l) => l.qty > 0)
@@ -277,7 +247,6 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
 
     // Reset form
     setQtys(initialQtys());
-    setPayment({ cash: "", mpesa: "", debt: "" });
     setCustomers("");
     setSamplers("");
     setNotes("");
@@ -302,8 +271,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
             {/* ── PHOTO PROOF ── */}
             <View style={styles.sectionHeader}>
               <Camera size={14} color={COLORS.primary} />
-                <Text style={styles.sectionHeaderText}>Sales Photo (Optional)</Text>
-              {/* <Text style={styles.sectionHeaderText}>Sales Photo <Text style={styles.requiredStar}>*</Text></Text> */}
+              <Text style={styles.sectionHeaderText}>Sales Photo (Optional)</Text>
             </View>
 
             <TouchableOpacity style={styles.photoBox} onPress={handlePickPhoto} activeOpacity={0.8}>
@@ -325,13 +293,11 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
             </View>
 
             {PRODUCTS.map((product) => {
-              const qty      = parseInt(qtys[product.sku] || "0", 10) || 0;
-              const subtotal = product.unitPrice * qty;
+              const qty = parseInt(qtys[product.sku] || "0", 10) || 0;
               return (
                 <View key={product.sku} style={styles.productRow}>
                   <View style={styles.productInfo}>
                     <Text style={styles.productName}>{product.name}</Text>
-                    <Text style={styles.productPrice}>{formatKES(product.unitPrice)} / unit</Text>
                   </View>
                   <View style={styles.productInput}>
                     <TextInput
@@ -343,9 +309,6 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
                       onChangeText={(t) => setQtys({ ...qtys, [product.sku]: t })}
                     />
                   </View>
-                  {qty > 0 && (
-                    <Text style={styles.productSubtotal}>{formatKES(subtotal)}</Text>
-                  )}
                 </View>
               );
             })}
@@ -356,84 +319,7 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
                 <Text style={styles.totalsLabel}>Total Items:</Text>
                 <Text style={styles.totalsValue}>{totalItems}</Text>
               </View>
-              <View style={[styles.totalsRow, styles.totalAmountRow]}>
-                <Text style={styles.totalAmountLabel}>Total Amount:</Text>
-                <Text style={styles.totalAmountValue}>{formatKES(totalAmount)}</Text>
-              </View>
             </View>
-
-            {/* ── PAYMENT BREAKDOWN ── */}
-            <View style={styles.sectionHeader}>
-              <TrendingUp size={14} color={COLORS.primary} />
-              <Text style={styles.sectionHeaderText}>
-                Payment Breakdown <Text style={styles.requiredStar}>*</Text>
-              </Text>
-            </View>
-            <Text style={styles.paymentHint}>
-              Cash + M-Pesa + Debt must equal {formatKES(totalAmount)}
-            </Text>
-
-            {/* Cash */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Cash Received (KES)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0"
-                placeholderTextColor={COLORS.textMuted}
-                keyboardType="numeric"
-                value={payment.cash}
-                onChangeText={(t) => setPayment({ ...payment, cash: t })}
-              />
-            </View>
-
-            {/* M-Pesa */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: COLORS.mpesa }]}>M-Pesa Received (KES)</Text>
-              <TextInput
-                style={[styles.input, { borderColor: COLORS.mpesa + "60" }]}
-                placeholder="0"
-                placeholderTextColor={COLORS.textMuted}
-                keyboardType="numeric"
-                value={payment.mpesa}
-                onChangeText={(t) => setPayment({ ...payment, mpesa: t })}
-              />
-            </View>
-
-            {/* Debt */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: COLORS.warning }]}>Debt / Credit (KES)</Text>
-              <TextInput
-                style={[styles.input, { borderColor: COLORS.warning + "60" }]}
-                placeholder="0"
-                placeholderTextColor={COLORS.textMuted}
-                keyboardType="numeric"
-                value={payment.debt}
-                onChangeText={(t) => setPayment({ ...payment, debt: t })}
-              />
-            </View>
-
-            {/* Payment balance indicator */}
-            {totalAmount > 0 && (
-              <View style={[
-                styles.balanceIndicator,
-                {
-                  backgroundColor: paymentBalance === 0
-                    ? COLORS.successLight
-                    : COLORS.warningLight,
-                },
-              ]}>
-                <Text style={[
-                  styles.balanceText,
-                  { color: paymentBalance === 0 ? COLORS.success : COLORS.warning },
-                ]}>
-                  {paymentBalance === 0
-                    ? "✓ Payment balanced"
-                    : paymentBalance > 0
-                      ? `Still needs ${formatKES(paymentBalance)}`
-                      : `Over by ${formatKES(Math.abs(paymentBalance))}`}
-                </Text>
-              </View>
-            )}
 
             {/* ── CUSTOMERS & SAMPLERS ── */}
             <View style={styles.twoCol}>
@@ -477,34 +363,31 @@ const ReportModal: React.FC<ReportModalProps> = ({ visible, onClose, onSubmit, s
             </View>
 
             {/* ── ACTIONS ── */}
-            {/* ── ACTIONS ── */}
-<View style={styles.modalActions}>
-  <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.75}>
-    <Text style={styles.cancelBtnText}>Cancel</Text>
-  </TouchableOpacity>
-  <TouchableOpacity
-    style={[
-      styles.submitBtn,
-      (submitting || submitted) && styles.submitBtnSuccess
-    ]}
-    onPress={handleSubmit}
-    activeOpacity={0.85}
-    disabled={submitting || submitted}
-  >
-    {submitting ? (
-      <ActivityIndicator color={COLORS.white} size="small" />
-    ) : submitted ? (
-      <>
-        <CheckCircle size={18} color={COLORS.white} style={{ marginRight: 6 }} />
-        <Text style={styles.submitBtnText}>Submitted</Text>
-      </>
-    ) : (
-      <Text style={styles.submitBtnText}>Submit Report</Text>
-    )}
-  </TouchableOpacity>
-</View>
-          
-
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.75}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.submitBtn,
+                  (submitting || submitted) && styles.submitBtnSuccess
+                ]}
+                onPress={handleSubmit}
+                activeOpacity={0.85}
+                disabled={submitting || submitted}
+              >
+                {submitting ? (
+                  <ActivityIndicator color={COLORS.white} size="small" />
+                ) : submitted ? (
+                  <>
+                    <CheckCircle size={18} color={COLORS.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.submitBtnText}>Submitted</Text>
+                  </>
+                ) : (
+                  <Text style={styles.submitBtnText}>Submit Report</Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
             <View style={{ height: 16 }} />
           </ScrollView>
@@ -527,32 +410,31 @@ const EmployeeDashboardScreen: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [submitted,    setSubmitted]    = useState(false);
   const [profileUri,   setProfileUri]   = useState<string | null>(null);
- const { withLoader } = useLoader();
+  const { withLoader } = useLoader();
 
   // Track late-flag state for live indicator
   const [isLateNow, setIsLateNow] = useState(false);
 
   // ── Load data ─────────────────────────────────────────────────────────────
-const loadData = useCallback(async () => {
-  try {
-    const [emp, sum, reports] = await Promise.all([
-      getEmployeeById(employeeId),
-      getEmployeeTodaySummary(employeeId),
-      getReportsByEmployee(employeeId),
-    ]);
+  const loadData = useCallback(async () => {
+    try {
+      const [emp, sum, reports] = await Promise.all([
+        getEmployeeById(employeeId),
+        getEmployeeTodaySummary(employeeId),
+        getReportsByEmployee(employeeId),
+      ]);
 
-    setEmployee(emp);
-    setSummary(sum);
-    setReportCount(reports.length);
-  } catch (error) {
-    Alert.alert("Error", "Failed to load data. Please try again.");
-  }
-}, [employeeId]);
+      setEmployee(emp);
+      setSummary(sum);
+      setReportCount(reports.length);
+    } catch (error) {
+      Alert.alert("Error", "Failed to load data. Please try again.");
+    }
+  }, [employeeId]);
 
-useEffect(() => {
-  withLoader(() => loadData());
-}, [loadData]);
-
+  useEffect(() => {
+    withLoader(() => loadData());
+  }, [loadData]);
 
   // ── Late flag indicator (updates every minute) ────────────────────────────
   useEffect(() => {
@@ -566,7 +448,6 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, []);
 
-
   const handleLogout = async () => {  
     await withLoader(async () => {    
       await logout();                
@@ -574,67 +455,63 @@ useEffect(() => {
     });
   };
 
-
-
-
   // ── Submit daily report ───────────────────────────────────────────────────
- // ── Submit daily report ───────────────────────────────────────────────────
-const handleSubmit = async (
-  products:  { sku: ProductSKU; qty: number }[],
-  payment:   { cash: number; mpesa: number; debt: number },
-  customers: number,
-  samplers:  number,
-  notes:     string,
-  photoUri:  string | null
-) => {
-  setSubmitting(true);
-  try {
-    const result = await addReport({
-      employeeId,
-      products,
-      cash:             payment.cash,
-      mpesa:            payment.mpesa,
-      debt:             payment.debt,
-      customersReached: customers,
-      samplersGiven:    samplers,
-      notes,
-      location:         employee?.assignedArea ?? "Unknown",
-      coords:           employee?.lastKnownLocation
-        ? { latitude: employee.lastKnownLocation.latitude, longitude: employee.lastKnownLocation.longitude }
-        : null,
-      photoUri: photoUri ?? "", 
-    });
+  const handleSubmit = async (
+    products:  { sku: ProductSKU; qty: number }[],
+    payment:   { cash: number; mpesa: number; debt: number },
+    customers: number,
+    samplers:  number,
+    notes:     string,
+    photoUri:  string | null
+  ) => {
+    setSubmitting(true);
+    try {
+      const result = await addReport({
+        employeeId,
+        products,
+        cash:             payment.cash,
+        mpesa:            payment.mpesa,
+        debt:             payment.debt,
+        customersReached: customers,
+        samplersGiven:    samplers,
+        notes,
+        location:         employee?.assignedArea ?? "Unknown",
+        coords:           employee?.lastKnownLocation
+          ? { latitude: employee.lastKnownLocation.latitude, longitude: employee.lastKnownLocation.longitude }
+          : null,
+        photoUri: photoUri ?? "", 
+      });
 
-    if (!result.success) {
-      Alert.alert("Submission Error", result.error ?? "Please try again.");
+      if (!result.success) {
+        Alert.alert("Submission Error", result.error ?? "Please try again.");
+        setSubmitting(false);
+        return;
+      }
+
+      if (result.report?.lateFlag) {
+        Alert.alert(
+          "⚠️ Late Submission",
+          "Your report has been submitted but flagged as late (after 7 PM EAT). Your manager will be notified."
+        );
+      }
+
+      await loadData();
+      
+      // Show success on button
       setSubmitting(false);
-      return;
+      setSubmitted(true);
+      
+      // Close modal after showing success
+      setTimeout(() => {
+        setSubmitted(false);
+        setModalVisible(false);
+      }, 1000);
+      
+    } catch {
+      Alert.alert("Error", "Could not submit report. Please try again.");
+      setSubmitting(false);
     }
-
-    if (result.report?.lateFlag) {
-      Alert.alert(
-        "⚠️ Late Submission",
-        "Your report has been submitted but flagged as late (after 7 PM EAT). Your manager will be notified."
-      );
-    }
-
-    await loadData();
-    
-    // Show success on button
-    setSubmitting(false);
-    setSubmitted(true);
-    
-    // Close modal after showing success
-    setTimeout(() => {
-      setSubmitted(false);
-      setModalVisible(false);
-    }, 1000);
-    
-  } catch {
-    Alert.alert("Error", "Could not submit report. Please try again.");
-    setSubmitting(false);
-  }
-};
+  };
 
   // ── Pick profile image ────────────────────────────────────────────────────
   const handlePickImage = async () => {
@@ -653,8 +530,6 @@ const handleSubmit = async (
   };
 
   const alreadySubmittedToday = !!summary?.todayReport;
-
-
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -721,7 +596,6 @@ const handleSubmit = async (
         {summary && (
           <MonthlyProgress
             sales={summary.monthSales}
-            salesKES={summary.monthSalesKES}
             target={summary.monthTarget}
           />
         )}
@@ -732,38 +606,11 @@ const handleSubmit = async (
             <CheckCircle size={16} color={COLORS.success} />
             <View style={{ flex: 1 }}>
               <Text style={styles.submittedBannerText}>
-                Today's report submitted · {summary?.todayReport?.sales} items · {formatKES(summary?.todayReport?.totalSalesKES ?? 0)}
+                Today's report submitted · {summary?.todayReport?.sales} items
               </Text>
               {summary?.todayReport?.lateFlag && (
                 <Text style={styles.lateFlagText}>⚠ Flagged as late submission</Text>
               )}
-            </View>
-          </View>
-        )}
-
-        {/* Payment breakdown for today */}
-        {alreadySubmittedToday && summary?.todayReport && (
-          <View style={styles.paymentBreakdownCard}>
-            <Text style={styles.paymentBreakdownTitle}>Today's Payment Breakdown</Text>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Cash</Text>
-              <Text style={styles.paymentCash}>{formatKES(summary.todayReport.salesBreakdown.cash)}</Text>
-            </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>M-Pesa</Text>
-              <Text style={styles.paymentMpesa}>{formatKES(summary.todayReport.salesBreakdown.mpesa)}</Text>
-            </View>
-            {summary.todayReport.salesBreakdown.debt > 0 && (
-              <View style={styles.paymentRow}>
-                <Text style={styles.paymentLabel}>Debt</Text>
-                <Text style={styles.paymentDebt}>{formatKES(summary.todayReport.salesBreakdown.debt)}</Text>
-              </View>
-            )}
-            <View style={[styles.paymentRow, { borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: 6, paddingTop: 8 }]}>
-              <Text style={[styles.paymentLabel, { fontWeight: "800", color: COLORS.textPrimary }]}>Total</Text>
-              <Text style={[styles.paymentCash, { color: COLORS.textPrimary, fontSize: 16 }]}>
-                {formatKES(summary.todayReport.totalSalesKES)}
-              </Text>
             </View>
           </View>
         )}
@@ -780,7 +627,6 @@ const handleSubmit = async (
             label="Sales (items)"
             value={summary?.weekSales ?? 0}
             icon={<TrendingUp size={20} color={COLORS.primary} />}
-            sub={formatKES(summary?.weekSalesKES ?? 0)}
           />
           <StatCard
             label="Customers Reached"
@@ -834,22 +680,7 @@ const handleSubmit = async (
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* Toast */}
-      {/* {submitted && (
-        <View style={styles.toast} pointerEvents="none">
-          <Text style={styles.toastText}>Daily report submitted!</Text>
-        </View>
-      )} */}
-
       {/* Report Modal */}
-      {/* <ReportModal
-        visible={modalVisible}
-        onClose={() => setModalVisible(false)}
-        onSubmit={handleSubmit}
-        submitting={submitting}
-      /> */}
-
-            {/* Report Modal */}
       <ReportModal
         visible={modalVisible}
         onClose={() => {
@@ -886,11 +717,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.success,
     shadowColor: COLORS.success,
   },
-submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpacing: 0.3 },
+  submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpacing: 0.3 },
   scroll: {
     flex: 1, backgroundColor: COLORS.background,
-    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
-     marginTop: -10,
+    marginTop: -10,
   },
   scrollContent: { paddingTop: 24, paddingHorizontal: 18 },
 
@@ -940,7 +770,6 @@ submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpa
   progressFill:   { height: 7, borderRadius: 4 },
   progressFooter: { flexDirection: "row", justifyContent: "space-between", marginTop: 6 },
   progressSub:    { fontSize: 11, color: COLORS.textMuted, fontWeight: "500" },
-  progressKES:    { fontSize: 11, color: COLORS.textSecondary, fontWeight: "700" },
 
   // Submitted banner
   submittedBanner: {
@@ -950,20 +779,6 @@ submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpa
   },
   submittedBannerText: { fontSize: 13, color: COLORS.success, fontWeight: "600" },
   lateFlagText:        { fontSize: 11, color: COLORS.warning, fontWeight: "600", marginTop: 3 },
-
-  // Payment breakdown card
-  paymentBreakdownCard: {
-    backgroundColor: COLORS.cardBg, borderRadius: 16, padding: 14, marginBottom: 12,
-  },
-  paymentBreakdownTitle: {
-    fontSize: 13, fontWeight: "700", color: COLORS.textSecondary,
-    marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5,
-  },
-  paymentRow:   { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 },
-  paymentLabel: { fontSize: 13, color: COLORS.textSecondary, fontWeight: "600" },
-  paymentCash:  { fontSize: 13, fontWeight: "700", color: COLORS.textPrimary },
-  paymentMpesa: { fontSize: 13, fontWeight: "700", color: COLORS.mpesa },
-  paymentDebt:  { fontSize: 13, fontWeight: "700", color: COLORS.warning },
 
   // Section
   sectionRow:  { flexDirection: "row", alignItems: "center", marginBottom: 14 },
@@ -1009,16 +824,6 @@ submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpa
   createReportBtnDisabled: { backgroundColor: COLORS.success, shadowColor: COLORS.success, shadowOpacity: 0.25 },
   createReportLabel: { fontSize: 16, fontWeight: "800", color: COLORS.white, letterSpacing: 0.3 },
 
-  // Toast
-  toast: {
-    position: "absolute", bottom: 40, alignSelf: "center",
-    backgroundColor: COLORS.success, borderRadius: 30,
-    paddingHorizontal: 24, paddingVertical: 14,
-    shadowColor: COLORS.success, shadowOpacity: 0.45,
-    shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 10,
-  },
-  toastText: { color: COLORS.white, fontWeight: "700", fontSize: 14, letterSpacing: 0.3 },
-
   // Modal
   modalOverlay:  { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: COLORS.overlayBg },
@@ -1058,7 +863,6 @@ submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpa
   },
   productInfo:     { flex: 1 },
   productName:     { fontSize: 14, fontWeight: "700", color: COLORS.textPrimary },
-  productPrice:    { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
   productInput:    { width: 64 },
   productQtyInput: {
     borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 8,
@@ -1066,21 +870,12 @@ submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpa
     color: COLORS.textPrimary, paddingVertical: 8,
     backgroundColor: COLORS.background,
   },
-  productSubtotal: { fontSize: 12, fontWeight: "700", color: COLORS.primary, width: 80, textAlign: "right" },
 
   // Totals
   totalsSummary:  { backgroundColor: COLORS.background, borderRadius: 12, padding: 12, marginVertical: 12 },
   totalsRow:      { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 },
   totalsLabel:    { fontSize: 13, color: COLORS.textSecondary, fontWeight: "600" },
   totalsValue:    { fontSize: 13, fontWeight: "700", color: COLORS.textPrimary },
-  totalAmountRow: { marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border },
-  totalAmountLabel: { fontSize: 15, fontWeight: "800", color: COLORS.textPrimary },
-  totalAmountValue: { fontSize: 16, fontWeight: "900", color: COLORS.primary },
-
-  // Payment
-  paymentHint: { fontSize: 12, color: COLORS.textMuted, marginBottom: 12, fontStyle: "italic" },
-  balanceIndicator: { borderRadius: 10, padding: 10, marginBottom: 12, marginTop: 4 },
-  balanceText:      { fontSize: 13, fontWeight: "700", textAlign: "center" },
 
   // Inputs
   twoCol:     { flexDirection: "row" },
@@ -1112,7 +907,6 @@ submitBtnText: { fontSize: 14, fontWeight: "800", color: COLORS.white, letterSpa
     shadowColor: COLORS.primary, shadowOpacity: 0.4,
     shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6,
   },
-  
 });
 
 export default EmployeeDashboardScreen;

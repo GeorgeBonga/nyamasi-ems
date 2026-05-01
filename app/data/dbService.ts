@@ -955,6 +955,101 @@ export interface AddReportResult {
 }
 
 
+// export const addReport = async (input: AddReportInput): Promise<AddReportResult> => {
+//   await delay(300);
+  
+//   console.log(' Starting report submission...');
+//   console.log('Employee ID:', input.employeeId);
+//   console.log('Products:', input.products.length);
+//   console.log('Has photo:', !!input.photoUri);
+
+//   // Validate products
+//   const nonZeroProducts = input.products.filter((p) => p.qty > 0);
+//   if (nonZeroProducts.length === 0) {
+//     return { success: false, error: "Enter at least one product quantity." };
+//   }
+
+//   // Calculate totals
+//   const items: ProductLineItem[] = nonZeroProducts.map(({ sku, qty }) => {
+//     const product = PRODUCTS.find((p) => p.sku === sku)!;
+//     return { sku, qty, unitPrice: product.unitPrice, subtotal: product.unitPrice * qty };
+//   });
+
+//   const totalItems = items.reduce((s, l) => s + l.qty, 0);
+//   const totalAmount = items.reduce((s, l) => s + l.subtotal, 0);
+
+//   console.log(`Total amount: ${totalAmount}, Items: ${totalItems}`);
+
+//   // Validate payment
+//   const paymentTotal = input.cash + input.mpesa + input.debt;
+//   if (paymentTotal !== totalAmount) {
+//     return {
+//       success: false,
+//       error: `Payment mismatch: Cash (${input.cash}) + M-Pesa (${input.mpesa}) + Debt (${input.debt}) = ${paymentTotal} KES but total sales = ${totalAmount} KES.`,
+//     };
+//   }
+
+//   // Handle photo upload if provided
+//   let uploadedPhotoUrl: string | null = null;
+//   if (input.photoUri && input.photoUri.trim() !== "") {
+//     console.log('📸 Photo provided, attempting to upload...');
+//     const dateISO = input.dateISO ?? todayISO();
+//     uploadedPhotoUrl = await uploadReportPhoto(input.employeeId, input.photoUri, dateISO);
+    
+//     if (!uploadedPhotoUrl) {
+//       console.warn('Photo upload failed, but continuing without photo');
+//       // Don't fail the report if photo upload fails
+//     } else {
+//       console.log('Photo uploaded successfully:', uploadedPhotoUrl);
+//     }
+//   } else {
+//     console.log('No photo provided');
+//   }
+
+//   // Prepare report data
+//   const lateFlag = isLateSubmission();
+//   const dateISO = input.dateISO ?? todayISO();
+//   const now = new Date().toISOString();
+
+//   // Insert report using RPC
+//   const { data, error } = await supabase.rpc("submit_report", {
+//     p_employee_id: input.employeeId,
+//     p_date_iso: dateISO,
+//     p_products: nonZeroProducts,
+//     p_cash: input.cash,
+//     p_mpesa: input.mpesa,
+//     p_debt: input.debt,
+//     p_customers: input.customersReached,
+//     p_samplers: input.samplersGiven,
+//     p_notes: input.notes,
+//     p_location: input.location,
+//     p_coords_lat: input.coords?.latitude ?? null,
+//     p_coords_lng: input.coords?.longitude ?? null,
+//     p_photo_uri: uploadedPhotoUrl, // Use the uploaded URL
+//   });
+
+//   if (error) {
+//     console.error('❌ RPC error:', error);
+//     return { success: false, error: error.message };
+//   }
+  
+//   if (!data?.success) {
+//     console.error('❌ RPC returned failure:', data?.error);
+//     return { success: false, error: data?.error };
+//   }
+
+//   console.log('✅ Report submitted successfully:', data.reportId);
+
+
+//   await updatePayrollFromReports(input.employeeId, dateISO);
+
+
+//   // Fetch the created report
+//   const reports = await getReportsByEmployee(input.employeeId);
+//   const report = reports.find((r) => r.id === data.reportId);
+
+//   return { success: true, report };
+// };
 export const addReport = async (input: AddReportInput): Promise<AddReportResult> => {
   await delay(300);
   
@@ -998,12 +1093,9 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
     
     if (!uploadedPhotoUrl) {
       console.warn('Photo upload failed, but continuing without photo');
-      // Don't fail the report if photo upload fails
     } else {
       console.log('Photo uploaded successfully:', uploadedPhotoUrl);
     }
-  } else {
-    console.log('No photo provided');
   }
 
   // Prepare report data
@@ -1025,7 +1117,7 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
     p_location: input.location,
     p_coords_lat: input.coords?.latitude ?? null,
     p_coords_lng: input.coords?.longitude ?? null,
-    p_photo_uri: uploadedPhotoUrl, // Use the uploaded URL
+    p_photo_uri: uploadedPhotoUrl,
   });
 
   if (error) {
@@ -1040,9 +1132,20 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
 
   console.log('✅ Report submitted successfully:', data.reportId);
 
+  // ═══════════════════════════════════════════════════════════════
+  // 🔴 ADD THIS: Deduct inventory after successful report submission
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    console.log('📦 Deducting inventory for report...');
+    await deductInventoryForReport(input.employeeId, nonZeroProducts);
+    console.log('✅ Inventory deducted successfully');
+  } catch (deductError) {
+    console.error('⚠️ Inventory deduction failed:', deductError);
+    // Don't fail the report if deduction fails - admin can fix manually
+  }
 
+  // Update payroll from reports
   await updatePayrollFromReports(input.employeeId, dateISO);
-
 
   // Fetch the created report
   const reports = await getReportsByEmployee(input.employeeId);
@@ -1050,7 +1153,6 @@ export const addReport = async (input: AddReportInput): Promise<AddReportResult>
 
   return { success: true, report };
 };
-
 
 export const approveReport = async (reportId: string): Promise<boolean> => {
   await delay(200);
@@ -2875,4 +2977,507 @@ export const regenerateMonthlyPayroll = async (
   }
   
   return { success: true, updated };
+};
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SECTION I: INVENTORY MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InventoryItem {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  location: string;
+  sku: ProductSKU;
+  product_name: string;
+  quantity: number;
+  low_stock_threshold: number;
+  last_updated: string;
+  updated_by: string;
+}
+
+export interface StockTransaction {
+  id: string;
+  inventory_id: string;
+  type: "restock" | "sale" | "adjustment" | "return" | "transfer";
+  quantity_change: number;
+  previous_quantity: number;
+  new_quantity: number;
+  reference: string;
+  created_at: string;
+  created_by: string;
+}
+
+export interface InventorySummary {
+  totalItems: number;
+  totalProducts: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+  byProduct: {
+    sku: ProductSKU;
+    name: string;
+    totalQuantity: number;
+    locations: number;
+  }[];
+}
+
+// Get all inventory items
+export const getInventory = async (): Promise<InventoryItem[]> => {
+  await delay();
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("*")
+    .order("employee_name");
+  
+  if (error) throw error;
+  return data || [];
+};
+
+// Get inventory for a specific employee
+export const getInventoryByEmployee = async (employeeId: string): Promise<InventoryItem[]> => {
+  await delay();
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .order("product_name");
+  
+  if (error) throw error;
+  return data || [];
+};
+
+// Get inventory for a specific product
+export const getInventoryByProduct = async (sku: ProductSKU): Promise<InventoryItem[]> => {
+  await delay();
+  const { data, error } = await supabase
+    .from("inventory")
+    .select("*")
+    .eq("sku", sku)
+    .order("employee_name");
+  
+  if (error) throw error;
+  return data || [];
+};
+
+// Get inventory summary
+export const getInventorySummary = async (): Promise<InventorySummary> => {
+  const items = await getInventory();
+  
+  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+  const lowStockItems = items.filter(item => item.quantity > 0 && item.quantity < item.low_stock_threshold).length;
+  const outOfStockItems = items.filter(item => item.quantity === 0).length;
+  
+  const byProductMap = new Map<ProductSKU, { totalQuantity: number; locations: Set<string> }>();
+  items.forEach(item => {
+    if (!byProductMap.has(item.sku)) {
+      byProductMap.set(item.sku, { totalQuantity: 0, locations: new Set() });
+    }
+    const entry = byProductMap.get(item.sku)!;
+    entry.totalQuantity += item.quantity;
+    entry.locations.add(item.employee_id);
+  });
+  
+  const byProduct = Array.from(byProductMap.entries()).map(([sku, data]) => {
+    const product = PRODUCTS.find(p => p.sku === sku);
+    return {
+      sku,
+      name: product?.name || sku,
+      totalQuantity: data.totalQuantity,
+      locations: data.locations.size,
+    };
+  });
+  
+  return {
+    totalItems,
+    totalProducts: byProduct.length,
+    lowStockItems,
+    outOfStockItems,
+    byProduct,
+  };
+};
+
+// Restock inventory (add or create)
+export interface RestockInput {
+  employeeId: string;
+  sku: ProductSKU;
+  quantity: number;
+  note?: string;
+  updatedBy?: string;
+}
+
+export const restockInventory = async (input: RestockInput): Promise<{ success: boolean; error?: string }> => {
+  await delay(200);
+  
+  try {
+    const employee = await getEmployeeById(input.employeeId);
+    if (!employee) return { success: false, error: "Employee not found" };
+    
+    const product = PRODUCTS.find(p => p.sku === input.sku);
+    if (!product) return { success: false, error: "Product not found" };
+    
+    // Find existing inventory
+    const { data: existing } = await supabase
+      .from("inventory")
+      .select("*")
+      .eq("employee_id", input.employeeId)
+      .eq("sku", input.sku)
+      .single();
+    
+    const now = new Date().toISOString();
+    
+    if (existing) {
+      // Update existing
+      const newQty = existing.quantity + input.quantity;
+      const { error } = await supabase
+        .from("inventory")
+        .update({
+          quantity: newQty,
+          last_updated: now,
+          updated_by: input.updatedBy || "admin",
+        })
+        .eq("id", existing.id);
+      
+      if (error) throw error;
+      
+      // Record transaction
+      await supabase.from("stock_transactions").insert({
+        inventory_id: existing.id,
+        type: "restock",
+        quantity_change: input.quantity,
+        previous_quantity: existing.quantity,
+        new_quantity: newQty,
+        reference: input.note || "Restock by admin",
+        created_at: now,
+        created_by: input.updatedBy || "admin",
+      });
+      
+    } else {
+      // Create new inventory
+      const { data: newItem, error } = await supabase
+        .from("inventory")
+        .insert({
+          employee_id: input.employeeId,
+          employee_name: employee.fullName,
+          location: employee.assignedArea,
+          sku: input.sku,
+          product_name: product.name,
+          quantity: input.quantity,
+          low_stock_threshold: 5,
+          last_updated: now,
+          updated_by: input.updatedBy || "admin",
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Record transaction
+      if (newItem) {
+        await supabase.from("stock_transactions").insert({
+          inventory_id: newItem.id,
+          type: "restock",
+          quantity_change: input.quantity,
+          previous_quantity: 0,
+          new_quantity: input.quantity,
+          reference: input.note || "Initial stock",
+          created_at: now,
+          created_by: input.updatedBy || "admin",
+        });
+      }
+    }
+    
+    // Check for low stock alerts after restock
+    await checkLowStockAlerts();
+    
+    return { success: true };
+    
+  } catch (error: any) {
+    console.error("Restock failed:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Adjust inventory manually
+export const adjustInventory = async (
+  inventoryId: string,
+  adjustment: number,
+  note?: string
+): Promise<{ success: boolean; error?: string }> => {
+  await delay(100);
+  
+  try {
+    // Get current inventory
+    const { data: current } = await supabase
+      .from("inventory")
+      .select("*")
+      .eq("id", inventoryId)
+      .single();
+    
+    if (!current) return { success: false, error: "Inventory not found" };
+    
+    const newQty = Math.max(0, current.quantity + adjustment);
+    
+    // Update
+    const { error } = await supabase
+      .from("inventory")
+      .update({
+        quantity: newQty,
+        last_updated: new Date().toISOString(),
+        updated_by: "admin",
+      })
+      .eq("id", inventoryId);
+    
+    if (error) throw error;
+    
+    // Record transaction
+    await supabase.from("stock_transactions").insert({
+      inventory_id: inventoryId,
+      type: "adjustment",
+      quantity_change: adjustment,
+      previous_quantity: current.quantity,
+      new_quantity: newQty,
+      reference: note || "Manual adjustment",
+      created_at: new Date().toISOString(),
+      created_by: "admin",
+    });
+    
+    // Check alerts
+    await checkLowStockAlerts();
+    
+    return { success: true };
+    
+  } catch (error: any) {
+    console.error("Adjustment failed:", error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Get stock transactions
+export const getStockTransactions = async (
+  inventoryId?: string,
+  limit: number = 50
+): Promise<StockTransaction[]> => {
+  await delay();
+  
+  let query = supabase
+    .from("stock_transactions")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  
+  if (inventoryId) {
+    query = query.eq("inventory_id", inventoryId);
+  }
+  
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+// Check for low stock and create notifications
+export const checkLowStockAlerts = async (): Promise<void> => {
+  try {
+    const { data: lowStock } = await supabase
+      .from("inventory")
+      .select("*")
+      .lt("quantity", 5)
+      .gt("quantity", 0);
+    
+    if (lowStock && lowStock.length > 0) {
+      for (const item of lowStock) {
+        // Check if notification already exists today
+        const today = new Date().toISOString().split("T")[0];
+        const { data: existing } = await supabase
+          .from("notifications")
+          .select("id")
+          .eq("type", "low_stock")
+          .eq("employee_id", item.employee_id)
+          .gte("created_at", today)
+          .single();
+        
+        if (!existing) {
+          await supabase.from("notifications").insert({
+            type: "low_stock",
+            title: "Low Stock Alert",
+            body: `${item.product_name} at ${item.employee_name} (${item.location}) is low: ${item.quantity} remaining`,
+            employee_id: item.employee_id,
+            employee_name: item.employee_name,
+            read: false,
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+    
+    // Check out of stock
+    const { data: outOfStock } = await supabase
+      .from("inventory")
+      .select("*")
+      .eq("quantity", 0);
+    
+    if (outOfStock && outOfStock.length > 0) {
+      for (const item of outOfStock) {
+        const today = new Date().toISOString().split("T")[0];
+        const { data: existing } = await supabase
+          .from("notifications")
+          .select("id")
+          .eq("type", "out_of_stock")
+          .eq("employee_id", item.employee_id)
+          .gte("created_at", today)
+          .single();
+        
+        if (!existing) {
+          await supabase.from("notifications").insert({
+            type: "out_of_stock",
+            title: "Out of Stock Alert",
+            body: `${item.product_name} at ${item.employee_name} (${item.location}) is out of stock!`,
+            employee_id: item.employee_id,
+            employee_name: item.employee_name,
+            read: false,
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Failed to check low stock:", error);
+  }
+};
+
+// Initialize inventory for all active employees
+export const initializeInventory = async (): Promise<{
+  success: boolean;
+  created: number;
+  error?: string;
+}> => {
+  await delay(300);
+  
+  try {
+    const employees = await getEmployees("active");
+    let created = 0;
+    
+    for (const emp of employees) {
+      for (const product of PRODUCTS) {
+        const { data: existing } = await supabase
+          .from("inventory")
+          .select("id")
+          .eq("employee_id", emp.id)
+          .eq("sku", product.sku)
+          .single();
+        
+        if (!existing) {
+          await supabase.from("inventory").insert({
+            employee_id: emp.id,
+            employee_name: emp.fullName,
+            location: emp.assignedArea,
+            sku: product.sku,
+            product_name: product.name,
+            quantity: 0,
+            low_stock_threshold: 5,
+            last_updated: new Date().toISOString(),
+            updated_by: "admin",
+          });
+          created++;
+        }
+      }
+    }
+    
+    return { success: true, created };
+    
+  } catch (error: any) {
+    console.error("Initialization failed:", error);
+    return { success: false, created: 0, error: error.message };
+  }
+};
+
+// Update the existing addReport function to trigger inventory deduction
+// Add this line after successful report submission in addReport:
+// await deductInventoryForReport(employeeId, products);
+
+
+
+/**
+ * Deduct inventory for each product sold in a report
+ * Call this after successful report submission
+ */
+export const deductInventoryForReport = async (
+  employeeId: string,
+  products: { sku: ProductSKU; qty: number }[]
+): Promise<void> => {
+  for (const product of products) {
+    // Find inventory for this employee and product
+    const { data: inventory, error: findError } = await supabase
+      .from("inventory")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .eq("sku", product.sku)
+      .single();
+    
+    if (findError || !inventory) {
+      console.log(`⚠️ No inventory found for ${product.sku} (employee ${employeeId}), skipping deduction`);
+      continue;
+    }
+    
+    const newQty = Math.max(0, inventory.quantity - product.qty);
+    
+    console.log(`📦 Deducting ${product.qty} of ${product.sku}: ${inventory.quantity} → ${newQty}`);
+    
+    // Update inventory quantity
+    const { error: updateError } = await supabase
+      .from("inventory")
+      .update({
+        quantity: newQty,
+        last_updated: new Date().toISOString(),
+        updated_by: "system",
+      })
+      .eq("id", inventory.id);
+    
+    if (updateError) {
+      console.error(`❌ Failed to update inventory for ${product.sku}:`, updateError);
+      continue;
+    }
+    
+    // Record the transaction
+    const { error: txnError } = await supabase
+      .from("stock_transactions")
+      .insert({
+        inventory_id: inventory.id,
+        type: "sale",
+        quantity_change: -product.qty,
+        previous_quantity: inventory.quantity,
+        new_quantity: newQty,
+        reference: `Report auto-deduction`,
+        created_at: new Date().toISOString(),
+        created_by: "system",
+      });
+    
+    if (txnError) {
+      console.error(`❌ Failed to record transaction for ${product.sku}:`, txnError);
+    }
+    
+    // Check for low stock alerts
+    if (newQty > 0 && newQty < 5) {
+      await supabase.from("notifications").insert({
+        type: "low_stock",
+        title: "Low Stock Alert",
+        body: `${inventory.product_name} at ${inventory.employee_name} (${inventory.location}) is low: ${newQty} remaining`,
+        employee_id: employeeId,
+        employee_name: inventory.employee_name,
+        read: false,
+        created_at: new Date().toISOString(),
+      });
+    } else if (newQty === 0) {
+      await supabase.from("notifications").insert({
+        type: "out_of_stock",
+        title: "Out of Stock Alert",
+        body: `${inventory.product_name} at ${inventory.employee_name} (${inventory.location}) is out of stock!`,
+        employee_id: employeeId,
+        employee_name: inventory.employee_name,
+        read: false,
+        created_at: new Date().toISOString(),
+      });
+    }
+  }
 };

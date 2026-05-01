@@ -21,7 +21,6 @@ import {
   AlertTriangle,
   Clock,
   Camera,
-  DollarSign,
   Package,
 } from "lucide-react-native";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -54,9 +53,6 @@ const COLORS = {
   dangerLight:   "#FFEBEE",
   mpesa:         "#00A651",
 };
-
-const formatKES = (n: number) =>
-  `KES ${n.toLocaleString("en-KE", { minimumFractionDigits: 0 })}`;
 
 // ─── Photo Viewer ─────────────────────────────────────────────────────────────
 const PhotoViewer: React.FC<{ uri: string; onClose: () => void }> = ({ uri, onClose }) => (
@@ -117,11 +113,11 @@ const ReportCard: React.FC<{ report: Report }> = ({ report }) => {
           </View>
         </View>
 
-        {/* KES total */}
-        <View style={styles.kesRow}>
-          <Text style={styles.kesTotal}>{formatKES(report.totalSalesKES)}</Text>
-          <View style={styles.kesBadge}>
-            <Text style={styles.kesBadgeText}>{report.sales} items</Text>
+        {/* Items total */}
+        <View style={styles.itemsRow}>
+          <View style={styles.itemsBadge}>
+            <Package size={16} color={COLORS.primary} />
+            <Text style={styles.itemsBadgeText}>{report.sales} items sold</Text>
           </View>
         </View>
 
@@ -148,48 +144,19 @@ const ReportCard: React.FC<{ report: Report }> = ({ report }) => {
           </View>
         </View>
 
-        {/* Payment breakdown */}
-        {sb && (
-          <View style={styles.paymentMini}>
-            <View style={styles.paymentMiniItem}>
-              <Text style={styles.paymentMiniLabel}>Cash</Text>
-              <Text style={[styles.paymentMiniVal, { color: COLORS.textPrimary }]}>
-                {formatKES(sb.cash)}
-              </Text>
-            </View>
-            <View style={styles.paymentMiniDivider} />
-            <View style={styles.paymentMiniItem}>
-              <Text style={styles.paymentMiniLabel}>M-Pesa</Text>
-              <Text style={[styles.paymentMiniVal, { color: COLORS.mpesa }]}>
-                {formatKES(sb.mpesa)}
-              </Text>
-            </View>
-            {sb.debt > 0 && (
-              <>
-                <View style={styles.paymentMiniDivider} />
-                <View style={styles.paymentMiniItem}>
-                  <Text style={styles.paymentMiniLabel}>Debt</Text>
-                  <Text style={[styles.paymentMiniVal, { color: COLORS.warning }]}>
-                    {formatKES(sb.debt)}
-                  </Text>
-                </View>
-              </>
-            )}
-          </View>
-        )}
-
         {/* Product breakdown */}
         {sb?.items && sb.items.length > 0 && (
           <View style={styles.productsSection}>
             <View style={styles.productsSectionHeader}>
               <Package size={11} color={COLORS.textMuted} />
-              <Text style={styles.productsSectionTitle}>Products Sold</Text>
+              <Text style={styles.productsSectionTitle}>Products Breakdown</Text>
             </View>
             {sb.items.map((item) => (
               <View key={item.sku} style={styles.productLine}>
-                <Text style={styles.productLineName} numberOfLines={1}>{item.sku.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</Text>
+                <Text style={styles.productLineName} numberOfLines={1}>
+                  {item.sku.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                </Text>
                 <Text style={styles.productLineQty}>×{item.qty}</Text>
-                <Text style={styles.productLineAmt}>{formatKES(item.subtotal)}</Text>
               </View>
             ))}
           </View>
@@ -238,43 +205,12 @@ const ReportCard: React.FC<{ report: Report }> = ({ report }) => {
 // ─── Summary Bar ──────────────────────────────────────────────────────────────
 const SummaryBar: React.FC<{ reports: Report[] }> = ({ reports }) => {
   const totalItems    = reports.reduce((s, r) => s + r.sales, 0);
-  const totalKES      = reports.reduce((s, r) => s + r.totalSalesKES, 0);
-  const totalCash     = reports.reduce((s, r) => s + (r.salesBreakdown?.cash  ?? 0), 0);
-  const totalMpesa    = reports.reduce((s, r) => s + (r.salesBreakdown?.mpesa ?? 0), 0);
-  const totalDebt     = reports.reduce((s, r) => s + (r.salesBreakdown?.debt  ?? 0), 0);
   const totalCustomers = reports.reduce((s, r) => s + r.customersReached, 0);
+  const totalSamplers = reports.reduce((s, r) => s + r.samplersGiven, 0);
 
   return (
     <View style={styles.summaryCard}>
-      {/* Total KES */}
-      <View style={styles.summaryTopRow}>
-        <Text style={styles.summaryKESLabel}>Total Revenue</Text>
-        <Text style={styles.summaryKES}>{formatKES(totalKES)}</Text>
-      </View>
-
-      {/* Payment split */}
-      <View style={styles.summaryPayRow}>
-        <View style={styles.summaryPayItem}>
-          <Text style={styles.summaryPayLabel}>Cash</Text>
-          <Text style={[styles.summaryPayVal, { color: COLORS.textPrimary }]}>{formatKES(totalCash)}</Text>
-        </View>
-        <View style={styles.summaryPayDivider} />
-        <View style={styles.summaryPayItem}>
-          <Text style={styles.summaryPayLabel}>M-Pesa</Text>
-          <Text style={[styles.summaryPayVal, { color: COLORS.mpesa }]}>{formatKES(totalMpesa)}</Text>
-        </View>
-        {totalDebt > 0 && (
-          <>
-            <View style={styles.summaryPayDivider} />
-            <View style={styles.summaryPayItem}>
-              <Text style={styles.summaryPayLabel}>Debt</Text>
-              <Text style={[styles.summaryPayVal, { color: COLORS.warning }]}>{formatKES(totalDebt)}</Text>
-            </View>
-          </>
-        )}
-      </View>
-
-      {/* Items / Customers */}
+      {/* Items / Customers / Samplers */}
       <View style={styles.summaryBar}>
         <View style={styles.summaryItem}>
           <Text style={styles.summaryValue}>{totalItems}</Text>
@@ -287,9 +223,15 @@ const SummaryBar: React.FC<{ reports: Report[] }> = ({ reports }) => {
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{reports.length}</Text>
-          <Text style={styles.summaryLabel}>Reports</Text>
+          <Text style={styles.summaryValue}>{totalSamplers}</Text>
+          <Text style={styles.summaryLabel}>Samplers</Text>
         </View>
+      </View>
+
+      {/* Reports count */}
+      <View style={styles.reportsCountRow}>
+        <Calendar size={14} color={COLORS.textMuted} />
+        <Text style={styles.reportsCountText}>{reports.length} reports submitted</Text>
       </View>
     </View>
   );
@@ -399,7 +341,6 @@ const styles = StyleSheet.create({
 
   body: {
     flex: 1, backgroundColor: COLORS.background,
-    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
     marginTop: -10, paddingTop: 20, paddingHorizontal: 18,
   },
 
@@ -410,21 +351,15 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.primary, shadowOpacity: 0.06,
     shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3,
   },
-  summaryTopRow:  { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  summaryKESLabel: { fontSize: 12, fontWeight: "700", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
-  summaryKES:     { fontSize: 22, fontWeight: "900", color: COLORS.primary },
 
-  summaryPayRow:    { flexDirection: "row", alignItems: "center", marginBottom: 14 },
-  summaryPayItem:   { flex: 1, alignItems: "center" },
-  summaryPayLabel:  { fontSize: 10, fontWeight: "600", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.4 },
-  summaryPayVal:    { fontSize: 14, fontWeight: "800", marginTop: 2 },
-  summaryPayDivider: { width: 1, height: 28, backgroundColor: COLORS.border },
-
-  summaryBar:     { flexDirection: "row", justifyContent: "space-around", alignItems: "center", borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
+  summaryBar:     { flexDirection: "row", justifyContent: "space-around", alignItems: "center", paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   summaryItem:    { alignItems: "center", flex: 1 },
   summaryValue:   { fontSize: 20, fontWeight: "800", color: COLORS.textPrimary, letterSpacing: -0.5 },
   summaryLabel:   { fontSize: 11, fontWeight: "600", color: COLORS.textMuted, marginTop: 3, textTransform: "uppercase", letterSpacing: 0.5 },
   summaryDivider: { width: 1, height: 36, backgroundColor: COLORS.border },
+
+  reportsCountRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingTop: 12 },
+  reportsCountText: { fontSize: 12, fontWeight: "600", color: COLORS.textMuted },
 
   // Section row
   sectionRow:  { flexDirection: "row", alignItems: "center", marginBottom: 14, gap: 8 },
@@ -453,11 +388,14 @@ const styles = StyleSheet.create({
   },
   statusPillText: { fontSize: 9, fontWeight: "700" },
 
-  // KES total
-  kesRow:      { flexDirection: "row", alignItems: "center", gap: 10 },
-  kesTotal:    { fontSize: 22, fontWeight: "900", color: COLORS.primary },
-  kesBadge:    { backgroundColor: COLORS.primaryMuted, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  kesBadgeText: { fontSize: 11, fontWeight: "700", color: COLORS.primary },
+  // Items row
+  itemsRow:      { flexDirection: "row", alignItems: "center" },
+  itemsBadge:    { 
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: COLORS.primaryMuted, borderRadius: 8, 
+    paddingHorizontal: 12, paddingVertical: 8 
+  },
+  itemsBadgeText: { fontSize: 14, fontWeight: "700", color: COLORS.primary },
 
   // Stats row
   statsRow: {
@@ -470,25 +408,13 @@ const styles = StyleSheet.create({
   statValue:   { fontSize: 17, fontWeight: "800", color: COLORS.textPrimary, letterSpacing: -0.3 },
   statDivider: { width: 1, height: 30, backgroundColor: COLORS.border },
 
-  // Payment mini
-  paymentMini: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: COLORS.background, borderRadius: 10,
-    paddingVertical: 8, paddingHorizontal: 10,
-  },
-  paymentMiniItem:    { flex: 1, alignItems: "center" },
-  paymentMiniLabel:   { fontSize: 10, color: COLORS.textMuted, fontWeight: "600", textTransform: "uppercase" },
-  paymentMiniVal:     { fontSize: 12, fontWeight: "800", marginTop: 2 },
-  paymentMiniDivider: { width: 1, height: 28, backgroundColor: COLORS.border },
-
   // Products section
   productsSection:       { borderRadius: 10, backgroundColor: COLORS.background, padding: 10 },
   productsSectionHeader: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 },
   productsSectionTitle:  { fontSize: 10, fontWeight: "700", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.4 },
   productLine:           { flexDirection: "row", alignItems: "center", paddingVertical: 3 },
   productLineName:       { flex: 1, fontSize: 12, color: COLORS.textSecondary, fontWeight: "600" },
-  productLineQty:        { fontSize: 12, fontWeight: "700", color: COLORS.textMuted, width: 28, textAlign: "center" },
-  productLineAmt:        { fontSize: 12, fontWeight: "800", color: COLORS.primary, width: 80, textAlign: "right" },
+  productLineQty:        { fontSize: 12, fontWeight: "700", color: COLORS.primary, width: 40, textAlign: "right" },
 
   // Photo
   photoRow:       { flexDirection: "row", alignItems: "center", gap: 10 },

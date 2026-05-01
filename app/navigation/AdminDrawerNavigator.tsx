@@ -12,6 +12,7 @@ import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
 import EmployeesScreen from '../screens/admin/EmployeesScreen';
 import ReportsScreen from '../screens/admin/ReportsScreen';
 import PayrollScreen from '../screens/admin/PayrollScreen';
+import InventoryScreen from '../screens/admin/InventoryScreen';
 const Drawer = createDrawerNavigator();
 
 const COLORS = {
@@ -49,6 +50,7 @@ function CustomDrawerContent(props: any) {
     { key: "Employees", label: "Employees", icon: Users, screen: "Employees" },
     { key: "Reports", label: "Reports", icon: FileText, screen: "Reports" },
     { key: "Payroll", label: "Payroll", icon: DollarSign, screen: "Payroll" },
+    { key: "Inventory", label: "Inventory", icon: ShoppingCart, screen: "Inventory" },
   ];
 
 
@@ -158,6 +160,10 @@ export default function AdminDrawerNavigator() {
       <Drawer.Screen
         name="Payroll"
         component={PayrollScreen}
+      />
+      <Drawer.Screen
+        name="Inventory"
+        component={InventoryScreen}
       />
     </Drawer.Navigator>
   );
