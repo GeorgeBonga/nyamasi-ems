@@ -1467,6 +1467,7 @@ export const getYearlyAggregates = async (
 
 export interface DashboardKpis {
   totalSales: number;
+  totalRevenue: number;
   totalSalesKES: number;
   totalCash: number;
   totalMpesa: number;
@@ -1479,6 +1480,97 @@ export interface DashboardKpis {
   conversionRate: number;
   avgSalesPerEmployee: number;
 }
+
+// export const getDashboardKpis = async (
+//   fromISO: string,
+//   toISO: string
+// ): Promise<DashboardKpis> => {
+//   await delay();
+
+//   const { data: rangeReports } = await supabase
+//     .from("reports")
+//     .select("*")
+//     .gte("date_iso", fromISO)
+//     .lte("date_iso", toISO)
+//     .eq("submitted", true);
+
+//   if (!rangeReports?.length) {
+//     const activeEmployees = await getEmployees("active");
+//     return {
+//       totalSales: 0,
+//       totalSalesKES: 0,
+//       totalCash: 0,
+//       totalMpesa: 0,
+//       totalDebt: 0,
+//       totalCustomers: 0,
+//       totalSamplers: 0,
+//       totalEmployees: activeEmployees.length,
+//       onlineEmployees: activeEmployees.filter((e) => e.online).length,
+//       topPerformer: null,
+//       conversionRate: 0,
+//       avgSalesPerEmployee: 0,
+//     };
+//   }
+
+//   const reportIds = rangeReports.map((r) => r.id);
+//   const { data: lineItems } = await supabase
+//     .from("report_line_items")
+//     .select("*")
+//     .in("report_id", reportIds);
+
+//   const liMap: Record<string, any[]> = {};
+//   for (const li of lineItems ?? []) {
+//     (liMap[li.report_id] ??= []).push(li);
+//   }
+
+//   let totalSales = 0;
+//   let totalSalesKES = 0;
+//   let totalCash = 0;
+//   let totalMpesa = 0;
+//   let totalDebt = 0;
+//   let totalCustomers = 0;
+//   let totalSamplers = 0;
+
+//   const byEmployee: Record<string, number> = {};
+
+//   for (const r of rangeReports) {
+//     const items = liMap[r.id] ?? [];
+//     const sales = items.reduce((s, li) => s + li.qty, 0);
+//     const kes = items.reduce((s, li) => s + li.subtotal, 0);
+
+//     totalSales += sales;
+//     totalSalesKES += kes;
+//     totalCash += r.cash ?? 0;
+//     totalMpesa += r.mpesa ?? 0;
+//     totalDebt += r.debt ?? 0;
+//     totalCustomers += r.customers_reached ?? 0;
+//     totalSamplers += r.samplers_given ?? 0;
+
+//     byEmployee[r.employee_id] = (byEmployee[r.employee_id] ?? 0) + sales;
+//   }
+
+//   const topEmpId = Object.entries(byEmployee).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+//   const topPerformer = topEmpId ? await getEmployeeById(topEmpId) : null;
+
+//   const activeEmployees = await getEmployees("active");
+//   const onlineEmployees = activeEmployees.filter((e) => e.online).length;
+//   const participatingCount = Object.keys(byEmployee).length || 1;
+
+//   return {
+//     totalSales,
+//     totalSalesKES,
+//     totalCash,
+//     totalMpesa,
+//     totalDebt,
+//     totalCustomers,
+//     totalSamplers,
+//     totalEmployees: activeEmployees.length,
+//     onlineEmployees,
+//     topPerformer,
+//     conversionRate: totalSamplers > 0 ? Math.round((totalSales / totalSamplers) * 100) : 0,
+//     avgSalesPerEmployee: Math.round(totalSales / participatingCount),
+//   };
+// };
 
 export const getDashboardKpis = async (
   fromISO: string,
@@ -1497,6 +1589,7 @@ export const getDashboardKpis = async (
     const activeEmployees = await getEmployees("active");
     return {
       totalSales: 0,
+      totalRevenue: 0, // ← ADD THIS
       totalSalesKES: 0,
       totalCash: 0,
       totalMpesa: 0,
@@ -1523,7 +1616,7 @@ export const getDashboardKpis = async (
   }
 
   let totalSales = 0;
-  let totalSalesKES = 0;
+  let totalSalesKES = 0; // This IS your actual revenue!
   let totalCash = 0;
   let totalMpesa = 0;
   let totalDebt = 0;
@@ -1535,10 +1628,10 @@ export const getDashboardKpis = async (
   for (const r of rangeReports) {
     const items = liMap[r.id] ?? [];
     const sales = items.reduce((s, li) => s + li.qty, 0);
-    const kes = items.reduce((s, li) => s + li.subtotal, 0);
+    const kes = items.reduce((s, li) => s + li.subtotal, 0); // Real revenue from line items
 
     totalSales += sales;
-    totalSalesKES += kes;
+    totalSalesKES += kes; // Accumulate real revenue
     totalCash += r.cash ?? 0;
     totalMpesa += r.mpesa ?? 0;
     totalDebt += r.debt ?? 0;
@@ -1557,6 +1650,7 @@ export const getDashboardKpis = async (
 
   return {
     totalSales,
+    totalRevenue: totalSalesKES, // ← Use totalSalesKES as revenue (real money)
     totalSalesKES,
     totalCash,
     totalMpesa,

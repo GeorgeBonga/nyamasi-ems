@@ -1,15 +1,3 @@
-/**
- * PayrollScreen.tsx — WITH PDF EXPORT
- * ─────────────────────────────────────────────────────────────────────────────
- * Changes from refactored version:
- *  • PayslipModal: X close button added top-right
- *  • Individual "Export PDF" generates a real payslip PDF via RNHTMLtoPDF
- *  • Full Payroll PDF generates a multi-employee payroll report via RNHTMLtoPDF
- *  • Both PDFs include company logo (base64 or file URI), professional layout
- *  • No more Alert stubs for PDF actions
- * ─────────────────────────────────────────────────────────────────────────────
- */
-
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
@@ -929,8 +917,30 @@ const PayrollRow: React.FC<{
 interface PayrollScreenProps { navigation?: any }
 
 const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
-  const [month,            setMonth]           = useState<Month>("Apr");
-  const [year,             setYear]            = useState("2026");
+
+   const getPreviousMonth = (): { month: Month; year: string } => {
+    const now = new Date();
+    const currentMonthIndex = now.getMonth(); // 0 = January, 11 = December
+    const currentYear = now.getFullYear();
+    
+    // Calculate previous month (wrap around to December if January)
+    const prevMonthIndex = currentMonthIndex === 0 ? 11 : currentMonthIndex - 1;
+    const prevYear = currentMonthIndex === 0 ? currentYear - 1 : currentYear;
+    
+    // Also check if YEARS array includes the calculated year
+    const yearStr = prevYear.toString();
+    const validYear = YEARS.includes(yearStr) ? yearStr : YEARS[0];
+    
+    return {
+      month: MONTHS[prevMonthIndex],
+      year: validYear
+    };
+  };
+
+  const initialPeriod = React.useMemo(() => getPreviousMonth(), []);
+  
+  const [month,            setMonth]           = useState<Month>(initialPeriod.month);
+  const [year,             setYear]            = useState(initialPeriod.year);
   const [records,          setRecords]         = useState<HydratedPayroll[]>([]);
   const [summary,          setSummary]         = useState<PayrollPeriodSummary | null>(null);
   const [loading,          setLoading]         = useState(true);
@@ -966,7 +976,14 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
   }, []);
 
   useEffect(() => { loadPayroll(month, year); }, [month, year, loadPayroll]);
-
+  useEffect(() => {
+  const unsubscribe = navigation?.addListener('focus', () => {
+    const { month: newMonth, year: newYear } = getPreviousMonth();
+    setMonth(newMonth);
+    setYear(newYear);
+  });
+  return unsubscribe;
+}, [navigation]);
   const handleMarkPaid = async (id: string) => {
     await markPayrollPaid(id);
     await loadPayroll(month, year);
@@ -1030,7 +1047,7 @@ const PayrollScreen: React.FC<PayrollScreenProps> = ({ navigation }) => {
     : records.filter(r => r.status === filterStatus);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primaryDark} />
 
       <View style={styles.header}>

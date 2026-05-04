@@ -105,6 +105,18 @@ const InventoryScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const [showRestockModal, setShowRestockModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showEmployeePicker, setShowEmployeePicker] = useState(false);
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<{
+  sku: ProductSKU;
+  name: string;
+  totalQuantity: number;
+  locations: number;
+  locationBreakdown: Array<{
+    employeeName: string;
+    location: string;
+    quantity: number;
+  }>;
+} | null>(null);
 
   const [restockEmployee, setRestockEmployee] = useState<string>("");
   const [restockQtys, setRestockQtys] = useState<Record<string, string>>({});
@@ -134,6 +146,33 @@ const InventoryScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
       setLoading(false);
     }
   }, []);
+
+  // Handle product card click to show location breakdown
+const handleProductClick = (productSku: string) => {
+  const productLocations = inventory.filter(item => item.sku === productSku);
+  const productInfo = summary.byProduct.find(p => p.sku === productSku);
+  
+  if (!productInfo) return;
+
+  const locationBreakdown = productLocations.map(item => ({
+    employeeName: item.employee_name,
+    location: item.location,
+    quantity: item.quantity,
+  }));
+
+  // Sort by quantity descending
+  locationBreakdown.sort((a, b) => b.quantity - a.quantity);
+
+  setSelectedProduct({
+    sku: productSku as ProductSKU,
+    name: productInfo.name,
+    totalQuantity: productInfo.totalQuantity,
+    locations: productLocations.length,
+    locationBreakdown,
+  });
+  
+  setShowProductModal(true);
+};
 
   // ── Load History ─────────────────────────────────────────────────────────
   const loadHistory = async (inventoryId?: string) => {
@@ -393,45 +432,59 @@ const InventoryScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
  
        
 
+     
+
         {/* ── Products Overview — Horizontal Scroll Strip ── */}
-        <View style={styles.stripSection}>
-          <Text style={styles.stripSectionLabel}>Products Overview</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.stripScroll}
-          >
-            {summary.byProduct.map((product) => {
-              const color =
-                product.totalQuantity === 0
-                  ? COLORS.danger
-                  : product.totalQuantity < 10
-                  ? COLORS.warning
-                  : COLORS.success;
-              const colorBg =
-                product.totalQuantity === 0
-                  ? COLORS.dangerLight
-                  : product.totalQuantity < 10
-                  ? COLORS.warningLight
-                  : COLORS.successLight;
-              return (
-                <View key={product.sku} style={styles.productChip}>
-                  <Text style={styles.productChipName} numberOfLines={1}>
-                    {product.name}
-                  </Text>
-                  <View style={[styles.productChipQtyWrap, ]}>
-                    <Text style={[styles.productChipQty]}>
-                      {product.totalQuantity}
-                    </Text>
-                  </View>
-                  <Text style={styles.productChipLocs}>
-                    {product.locations} location{product.locations !== 1 ? "s" : ""}
-                  </Text>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
+<View style={styles.stripSection}>
+  <Text style={styles.stripSectionLabel}>Products Overview</Text>
+  <ScrollView
+    horizontal
+    showsHorizontalScrollIndicator={false}
+    contentContainerStyle={styles.stripScroll}
+  >
+    {summary.byProduct.map((product) => {
+      const color =
+        product.totalQuantity === 0
+          ? COLORS.danger
+          : product.totalQuantity < 10
+          ? COLORS.warning
+          : COLORS.success;
+      const colorBg =
+        product.totalQuantity === 0
+          ? COLORS.dangerLight
+          : product.totalQuantity < 10
+          ? COLORS.warningLight
+          : COLORS.successLight;
+      return (
+        <TouchableOpacity 
+          key={product.sku} 
+          style={styles.productChip}
+          onPress={() => handleProductClick(product.sku)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.productChipName} numberOfLines={1}>
+            {product.name}
+          </Text>
+          <View style={[styles.productChipQtyWrap,
+            //  { backgroundColor: colorBg }
+             ]}>
+            <Text style={[styles.productChipQty, { color: color }]}>
+              {product.totalQuantity}
+            </Text>
+          </View>
+          <Text style={styles.productChipLocs}>
+            {product.locations} location{product.locations !== 1 ? "s" : ""}
+          </Text>
+          {/* Add a subtle "tap to view" indicator */}
+          <View style={styles.productChipFooter}>
+            <Text style={styles.productChipFooterText}>Tap for details</Text>
+            <ChevronDown size={8} color={COLORS.textMuted} />
+          </View>
+        </TouchableOpacity>
+      );
+    })}
+  </ScrollView>
+</View>
 
         {/* ── Actions Bar ── */}
         <View style={styles.actionsBar}>
@@ -959,6 +1012,172 @@ const InventoryScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </View>
         </View>
       </Modal>
+
+      {/* ── Product Location Detail Modal ── */}
+<Modal
+  visible={showProductModal}
+  transparent
+  animationType="slide"
+  onRequestClose={() => setShowProductModal(false)}
+>
+  <View style={styles.modalOverlay}>
+    <TouchableOpacity
+      style={StyleSheet.absoluteFillObject}
+      onPress={() => setShowProductModal(false)}
+    />
+    <View style={styles.modalSheet}>
+      <TouchableOpacity
+        style={styles.modalCloseBtn}
+        onPress={() => setShowProductModal(false)}
+        activeOpacity={0.7}
+      >
+        <X size={20} color={COLORS.textSecondary} />
+      </TouchableOpacity>
+      <View style={styles.modalHandle} />
+
+      {selectedProduct && (
+        <>
+          {/* Product Header */}
+          <View style={styles.productModalHeader}>
+            <View style={styles.productModalIcon}>
+              <Package size={24} color={COLORS.primary} />
+            </View>
+            <View style={styles.productModalInfo}>
+              <Text style={styles.productModalName}>{selectedProduct.name}</Text>
+              <View style={styles.productModalStats}>
+                <View style={styles.productModalStat}>
+                  <Text style={styles.productModalStatValue}>
+                    {selectedProduct.totalQuantity}
+                  </Text>
+                  <Text style={styles.productModalStatLabel}>Total Units</Text>
+                </View>
+                <View style={styles.productModalDivider} />
+                <View style={styles.productModalStat}>
+                  <Text style={styles.productModalStatValue}>
+                    {selectedProduct.locations}
+                  </Text>
+                  <Text style={styles.productModalStatLabel}>
+                    Location{selectedProduct.locations !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* Stock Level Bar */}
+          <View style={styles.productModalStockBar}>
+            <View style={styles.productModalStockInfo}>
+              <Text style={styles.productModalStockLabel}>Stock Level</Text>
+              <Text style={styles.productModalStockPercent}>
+                {selectedProduct.totalQuantity === 0 
+                  ? 'Out of Stock'
+                  : selectedProduct.totalQuantity < 5 
+                  ? 'Low Stock'
+                  : selectedProduct.totalQuantity < 10 
+                  ? 'Moderate'
+                  : 'Healthy'}
+              </Text>
+            </View>
+            <View style={styles.productModalBarTrack}>
+              <View 
+                style={[
+                  styles.productModalBarFill,
+                  { 
+                    width: `${Math.min(100, Math.round((selectedProduct.totalQuantity / 40) * 100))}%`,
+                    backgroundColor: selectedProduct.totalQuantity === 0 
+                      ? COLORS.danger 
+                      : selectedProduct.totalQuantity < 5 
+                      ? COLORS.warning 
+                      : COLORS.success
+                  }
+                ]} 
+              />
+            </View>
+          </View>
+
+          {/* Location Breakdown */}
+          <Text style={styles.productModalSectionTitle}>Location Breakdown</Text>
+          
+          {selectedProduct.locationBreakdown.length === 0 ? (
+            <View style={styles.emptyState}>
+              <MapPin size={32} color={COLORS.textMuted} />
+              <Text style={styles.emptyTitle}>No Locations Found</Text>
+              <Text style={styles.emptySubtitle}>
+                This product hasn't been stocked at any location yet.
+              </Text>
+            </View>
+          ) : (
+            <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+              {selectedProduct.locationBreakdown.map((location, index) => (
+                <View key={index} style={styles.locationRows}>
+                  <View style={styles.locationRowLeft}>
+                    <View style={[
+                      styles.locationDot,
+                      { 
+                        backgroundColor: location.quantity === 0 
+                          ? COLORS.danger 
+                          : location.quantity < 5 
+                          ? COLORS.warning 
+                          : COLORS.success 
+                      }
+                    ]} />
+                    <View style={styles.locationInfo}>
+                      <Text style={styles.locationName}>{location.employeeName}</Text>
+                      <View style={styles.locationMeta}>
+                        <MapPin size={10} color={COLORS.textMuted} />
+                        <Text style={styles.locationAddress}>{location.location}</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <View style={styles.locationQtyBadge}>
+                    <Text style={[
+                      styles.locationQtyText,
+                      { 
+                        color: location.quantity === 0 
+                          ? COLORS.danger 
+                          : location.quantity < 5 
+                          ? COLORS.warning 
+                          : COLORS.textPrimary 
+                      }
+                    ]}>
+                      {location.quantity}
+                    </Text>
+                    <Text style={styles.locationQtyUnit}>units</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Footer Actions */}
+          <View style={styles.productModalActions}>
+            <TouchableOpacity
+              style={[styles.productModalBtn, { backgroundColor: COLORS.primary }]}
+              onPress={() => {
+                setShowProductModal(false);
+                setShowRestockModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Plus size={16} color={COLORS.white} />
+              <Text style={styles.productModalBtnText}>Restock This Product</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.productModalBtn, { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border }]}
+              onPress={() => setShowProductModal(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.productModalBtnText, { color: COLORS.textSecondary }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+    </View>
+  </View>
+</Modal>
+
+
+
     </SafeAreaView>
   );
 };
@@ -990,6 +1209,205 @@ const styles = StyleSheet.create({
     fontSize: 18, fontWeight: "800", color: COLORS.white,
     textAlign: "center", letterSpacing: 0.3,
   },
+
+  // ── Product Chip Footer ──
+productChipFooter: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 3,
+  marginTop: 6,
+  paddingTop: 6,
+  borderTopWidth: 1,
+  borderTopColor: COLORS.border,
+},
+productChipFooterText: {
+  fontSize: 8,
+  fontWeight: '600',
+  color: COLORS.textMuted,
+  textTransform: 'uppercase',
+  letterSpacing: 0.3,
+},
+
+// ── Product Modal ──
+productModalHeader: {
+  flexDirection: 'row',
+  gap: 14,
+  marginBottom: 20,
+},
+productModalIcon: {
+  width: 56,
+  height: 56,
+  borderRadius: 16,
+  backgroundColor: COLORS.primaryMuted,
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderWidth: 1.5,
+  borderColor: COLORS.primaryMid,
+},
+productModalInfo: {
+  flex: 1,
+  justifyContent: 'center',
+},
+productModalName: {
+  fontSize: 18,
+  fontWeight: '800',
+  color: COLORS.textPrimary,
+  marginBottom: 8,
+},
+productModalStats: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 12,
+},
+productModalStat: {
+  alignItems: 'center',
+},
+productModalStatValue: {
+  fontSize: 18,
+  fontWeight: '900',
+  color: COLORS.textPrimary,
+  lineHeight: 20,
+},
+productModalStatLabel: {
+  fontSize: 9,
+  fontWeight: '600',
+  color: COLORS.textMuted,
+  textTransform: 'uppercase',
+  marginTop: 2,
+},
+productModalDivider: {
+  width: 1,
+  height: 28,
+  backgroundColor: COLORS.border,
+},
+
+// ── Product Modal Stock Bar ──
+productModalStockBar: {
+  backgroundColor: COLORS.background,
+  borderRadius: 12,
+  padding: 12,
+  marginBottom: 16,
+},
+productModalStockInfo: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 8,
+},
+productModalStockLabel: {
+  fontSize: 11,
+  fontWeight: '700',
+  color: COLORS.textSecondary,
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+},
+productModalStockPercent: {
+  fontSize: 11,
+  fontWeight: '700',
+  color: COLORS.textMuted,
+},
+productModalBarTrack: {
+  height: 6,
+  backgroundColor: COLORS.white,
+  borderRadius: 3,
+  overflow: 'hidden',
+},
+productModalBarFill: {
+  height: '100%',
+  borderRadius: 3,
+},
+
+// ── Product Modal Section ──
+productModalSectionTitle: {
+  fontSize: 12,
+  fontWeight: '800',
+  color: COLORS.textSecondary,
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
+  marginBottom: 12,
+},
+
+// ── Location Rows ──
+locationRows: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingVertical: 12,
+  paddingHorizontal: 4,
+  borderBottomWidth: 1,
+  borderBottomColor: COLORS.border,
+},
+locationRowLeft: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  flex: 1,
+},
+locationDot: {
+  width: 10,
+  height: 10,
+  borderRadius: 5,
+},
+locationInfo: {
+  flex: 1,
+},
+locationName: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: COLORS.textPrimary,
+},
+locationMeta: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  marginTop: 3,
+},
+locationAddress: {
+  fontSize: 11,
+  color: COLORS.textMuted,
+  fontWeight: '500',
+},
+locationQtyBadge: {
+  alignItems: 'center',
+  backgroundColor: COLORS.background,
+  borderRadius: 8,
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  minWidth: 60,
+},
+locationQtyText: {
+  fontSize: 15,
+  fontWeight: '800',
+  lineHeight: 18,
+},
+locationQtyUnit: {
+  fontSize: 9,
+  fontWeight: '600',
+  color: COLORS.textMuted,
+  textTransform: 'uppercase',
+  marginTop: 1,
+},
+
+// ── Product Modal Actions ──
+productModalActions: {
+  flexDirection: 'row',
+  gap: 8,
+  marginTop: 20,
+},
+productModalBtn: {
+  flex: 1,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  borderRadius: 12,
+  paddingVertical: 13,
+},
+productModalBtnText: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: COLORS.white,
+},
 
   // ── Scroll ──
   scroll: { flex: 1, backgroundColor: COLORS.background, marginTop: -8 },

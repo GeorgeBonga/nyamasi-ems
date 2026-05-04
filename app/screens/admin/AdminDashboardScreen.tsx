@@ -1,16 +1,5 @@
-/**
- * AdminDashboardScreen.tsx — FULLY REFACTORED
- * ─────────────────────────────────────────────────────────────────────────────
- * Changes:
- *  • KPI filter → inline popover next to button, not bottom sheet
- *  • Notification bell → tracks employee logins, opens modal list
- *  • Custom date range → fully working date pickers with real filtering
- *  • Bottom modals → safe-area-aware padding (respects nav bar)
- *  • Sales chart → smooth cubic-bezier curves instead of polylines
- * ─────────────────────────────────────────────────────────────────────────────
- */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -30,7 +19,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import {
   Users, TrendingUp, Gift, Target, ChevronDown, ChevronLeft, ChevronRight,
   Bell, Wifi, WifiOff, Filter, Award, BarChart2, Calendar, Menu, X,
-  LogIn, Check,
+  LogIn, Check, Package, AlertTriangle, TrendingDown, ShoppingCart,
+  DollarSign, MapPin, Clock, ArrowUpRight, ArrowDownRight,
 } from "lucide-react-native";
 
 import {
@@ -38,10 +28,14 @@ import {
   getChartData,
   getEmployees,
   getReportsByDateRange,
+  getInventorySummary,
+  getInventory,
   DashboardKpis,
   ChartDataset,
   Employee,
   supabase,
+  InventorySummary,
+  InventoryItem,
 } from "../../data/dbService";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -54,6 +48,7 @@ const COLORS = {
   primaryDark:   "#8B0111",
   primaryMuted:  "rgba(139,1,17,0.09)",
   primaryLight:  "#fdf0f1",
+  primaryMid:    "rgba(139,1,17,0.15)",
   white:         "#FFFFFF",
   background:    "#F0F5FB",
   cardBg:        "#FFFFFF",
@@ -65,6 +60,8 @@ const COLORS = {
   successLight:  "#E0F2F1",
   warning:       "#F57C00",
   warningLight:  "#FFF3E0",
+  danger:        "#C62828",
+  dangerLight:   "#FFEBEE",
   accentBlue:    "#1565C0",
   accentBlueLt:  "#E3F0FF",
   online:        "#43A047",
@@ -72,10 +69,14 @@ const COLORS = {
   offline:       "#9E9E9E",
   offlineLight:  "#F5F5F5",
   overlay:       "rgba(13,33,55,0.55)",
+  purple:        "#7B1FA2",
+  purpleLight:   "#F3E5F5",
+  headerAlt:     "#FAFCFF",
 };
 
 type ChartFilter = "Daily" | "Weekly" | "Monthly" | "Custom";
 type KpiFilter   = "Today" | "This Week" | "This Month";
+
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 const todayISO = (): string => new Date().toISOString().split("T")[0];
@@ -112,10 +113,6 @@ interface LoginNotification {
   read: boolean;
 }
 
-
-
-
-
 // ── Smooth bezier path helper ─────────────────────────────────────────────────
 const smoothPath = (pts: { x: number; y: number }[]): string => {
   if (pts.length < 2) return "";
@@ -141,7 +138,6 @@ interface EmpWithSales extends Employee {
   weeklyCustomers: number;
   weeklySamplers: number;
 }
-
 
 // ─── Mini Calendar Picker ─────────────────────────────────────────────────────
 const MiniCalendar: React.FC<{
@@ -264,7 +260,6 @@ const LineChart: React.FC<{ data: ChartDataset }> = ({ data }) => {
   return (
     <View>
       <View style={{ flexDirection: "row" }}>
-        {/* Y axis labels */}
         <View style={{ width: CHART_PAD.left, height: CHART_H, justifyContent: "space-between",
           paddingBottom: CHART_PAD.bottom, paddingTop: CHART_PAD.top }}>
           {yLabels.map((v, i) => (
@@ -281,7 +276,6 @@ const LineChart: React.FC<{ data: ChartDataset }> = ({ data }) => {
               </LinearGradient>
             </Defs>
 
-            {/* Grid lines */}
             {yLabels.map((_, i) => {
               const y = CHART_PAD.top + (i / (yTicks - 1)) * plotH;
               return (
@@ -291,26 +285,18 @@ const LineChart: React.FC<{ data: ChartDataset }> = ({ data }) => {
               );
             })}
 
-            {/* Gradient fill under sales */}
             <Path d={smoothAreaPath(salesPts, bottom)} fill="url(#salesGrad)" />
-
-            {/* Samplers — dashed smooth */}
             <Path d={smoothPath(samplersPts)}
               fill="none" stroke={COLORS.success}
               strokeWidth="2" strokeLinecap="round"
               strokeDasharray="6,4" />
-
-            {/* Customers — smooth */}
             <Path d={smoothPath(customersPts)}
               fill="none" stroke={COLORS.accentBlue}
               strokeWidth="2" strokeLinecap="round" />
-
-            {/* Sales — smooth, thickest */}
             <Path d={smoothPath(salesPts)}
               fill="none" stroke={COLORS.primary}
               strokeWidth="2.8" strokeLinecap="round" />
 
-            {/* Sales dots */}
             {salesPts.map((p, i) => (
               <Circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="4.5"
                 fill={COLORS.primary} stroke={COLORS.white} strokeWidth="2" />
@@ -319,7 +305,6 @@ const LineChart: React.FC<{ data: ChartDataset }> = ({ data }) => {
         </View>
       </View>
 
-      {/* X axis */}
       <View style={{ flexDirection: "row", marginLeft: CHART_PAD.left, marginTop: 6 }}>
         {data.labels.map((l, i) => (
           <Text key={i} style={[chartSt.xLabel, {
@@ -395,7 +380,7 @@ const EmployeeRow: React.FC<{ emp: EmpWithSales; rank: number }> = ({ emp, rank 
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
-   const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets();
 
   // Chart & filter state
   const [chartFilter, setChartFilter] = useState<ChartFilter>("Weekly");
@@ -406,6 +391,7 @@ const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
   const [showKpiPopover, setShowKpiPopover] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   const [showNotifModal, setShowNotifModal] = useState(false);
+  const [showProductModal, setShowProductModal] = useState(false);
 
   // Custom date range
   const [customFrom, setCustomFrom] = useState(getWeekRange().from);
@@ -421,17 +407,28 @@ const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
   const [chartData, setChartData] = useState<ChartDataset | null>(null);
   const [employees, setEmployees] = useState<EmpWithSales[]>([]);
+  const [inventorySummary, setInventorySummary] = useState<InventorySummary | null>(null);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [kpiLoading, setKpiLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(true);
   const [empLoading, setEmpLoading] = useState(true);
+  const [inventoryLoading, setInventoryLoading] = useState(true);
+
+  // Selected product for modal
+  const [selectedProduct, setSelectedProduct] = useState<{
+    name: string;
+    totalQuantity: number;
+    locations: number;
+    locationBreakdown: Array<{
+      employeeName: string;
+      location: string;
+      quantity: number;
+    }>;
+  } | null>(null);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ADD THIS CODE BELOW (inside the component)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  // Load existing notifications from database
+  // ── Load Notifications ───────────────────────────────────────────────────
   const loadNotifications = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -456,154 +453,65 @@ const AdminDashboardScreen: React.FC<{ navigation?: any }> = ({ navigation }) =>
     }
   }, []);
 
-  // Load notifications on mount
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
 
-  // REAL-TIME CHECK-IN NOTIFICATIONS
-  // useEffect(() => {
-  //   // Subscribe to new checkins
-  //   const checkinSubscription = supabase
-  //     .channel("checkins-channel")
-  //     .on(
-  //       "postgres_changes",
-  //       {
-  //         event: "INSERT",
-  //         schema: "public",
-  //         table: "checkins",
-  //       },
-  //       async (payload) => {
-  //         const newCheckin = payload.new;
-          
-  //         const { data: emp } = await supabase
-  //           .from("employees")
-  //           .select("full_name")
-  //           .eq("id", newCheckin.employee_id)
-  //           .single();
+  // REAL-TIME NOTIFICATIONS
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-notifications")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "checkins" },
+        async (payload) => {
+          const newCheckin = payload.new;
+          const { data: emp } = await supabase
+            .from("employees")
+            .select("full_name")
+            .eq("id", newCheckin.employee_id)
+            .single();
 
-  //         if (emp) {
-  //           const newNotification: LoginNotification = {
-  //             id: `notif-${newCheckin.id}`,
-  //             employeeId: newCheckin.employee_id,
-  //             employeeName: emp.full_name,
-  //             timestamp: new Date(newCheckin.check_in_time),
-  //             read: false,
-  //           };
-
-  //           setNotifications(prev => [newNotification, ...prev]);
-  //         }
-  //       }
-  //     )
-  //     .subscribe();
-
-  //   // Subscribe to employee online status changes
-  //   const employeeSubscription = supabase
-  //     .channel("employees-channel")
-  //     .on(
-  //       "postgres_changes",
-  //       {
-  //         event: "UPDATE",
-  //         schema: "public",
-  //         table: "employees",
-  //       },
-  //       async (payload) => {
-  //         const updatedEmp = payload.new;
-  //         const oldEmp = payload.old;
-          
-  //         if (!oldEmp.online && updatedEmp.online) {
-  //           const newNotification: LoginNotification = {
-  //             id: `notif-online-${updatedEmp.id}-${Date.now()}`,
-  //             employeeId: updatedEmp.id,
-  //             employeeName: updatedEmp.full_name,
-  //             timestamp: new Date(),
-  //             read: false,
-  //           };
-
-  //           setNotifications(prev => [newNotification, ...prev]);
-  //         }
-  //       }
-  //     )
-  //     .subscribe();
-
-  //   return () => {
-  //     checkinSubscription.unsubscribe();
-  //     employeeSubscription.unsubscribe();
-  //   };
-  // }, []);
-
-  // REAL-TIME NOTIFICATIONS - Combined into single channel
-useEffect(() => {
-  // Create ONE channel for all real-time updates
-  const channel = supabase
-    .channel("admin-notifications")
-    .on(
-      "postgres_changes",
-      {
-        event: "INSERT",
-        schema: "public",
-        table: "checkins",
-      },
-      async (payload) => {
-        const newCheckin = payload.new;
-        
-        const { data: emp } = await supabase
-          .from("employees")
-          .select("full_name")
-          .eq("id", newCheckin.employee_id)
-          .single();
-
-        if (emp) {
-          const newNotification: LoginNotification = {
-            id: `notif-${newCheckin.id}`,
-            employeeId: newCheckin.employee_id,
-            employeeName: emp.full_name,
-            timestamp: new Date(newCheckin.check_in_time),
-            read: false,
-          };
-
-          setNotifications(prev => [newNotification, ...prev]);
+          if (emp) {
+            const newNotification: LoginNotification = {
+              id: `notif-${newCheckin.id}`,
+              employeeId: newCheckin.employee_id,
+              employeeName: emp.full_name,
+              timestamp: new Date(newCheckin.check_in_time),
+              read: false,
+            };
+            setNotifications(prev => [newNotification, ...prev]);
+          }
         }
-      }
-    )
-    .on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "employees",
-      },
-      async (payload) => {
-        const updatedEmp = payload.new;
-        const oldEmp = payload.old;
-        
-        if (!oldEmp.online && updatedEmp.online) {
-          const newNotification: LoginNotification = {
-            id: `notif-online-${updatedEmp.id}-${Date.now()}`,
-            employeeId: updatedEmp.id,
-            employeeName: updatedEmp.full_name,
-            timestamp: new Date(),
-            read: false,
-          };
-
-          setNotifications(prev => [newNotification, ...prev]);
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "employees" },
+        async (payload) => {
+          const updatedEmp = payload.new;
+          const oldEmp = payload.old;
+          if (!oldEmp.online && updatedEmp.online) {
+            const newNotification: LoginNotification = {
+              id: `notif-online-${updatedEmp.id}-${Date.now()}`,
+              employeeId: updatedEmp.id,
+              employeeName: updatedEmp.full_name,
+              timestamp: new Date(),
+              read: false,
+            };
+            setNotifications(prev => [newNotification, ...prev]);
+          }
         }
-      }
-    )
-    .subscribe(); // ✅ Only ONE subscribe call for the whole channel
+      )
+      .subscribe();
 
-  return () => {
-    channel.unsubscribe();
-  };
-}, []);
+    return () => {
+      channel.unsubscribe();
+    };
+  }, []);
 
   const markAllRead = async () => {
     setNotifications(ns => ns.map(n => ({ ...n, read: true })));
-    
-    await supabase
-      .from("notifications")
-      .update({ read: true })
-      .eq("read", false);
+    await supabase.from("notifications").update({ read: true }).eq("read", false);
   };
 
   // ── Load KPIs ─────────────────────────────────────────────────────────────
@@ -661,9 +569,24 @@ useEffect(() => {
     finally { setEmpLoading(false); }
   }, []);
 
+  // ── Load inventory ────────────────────────────────────────────────────────
+  const loadInventory = useCallback(async () => {
+    setInventoryLoading(true);
+    try {
+      const [summaryData, inventoryData] = await Promise.all([
+        getInventorySummary(),
+        getInventory(),
+      ]);
+      setInventorySummary(summaryData);
+      setInventory(inventoryData);
+    } catch (e) { console.error(e); }
+    finally { setInventoryLoading(false); }
+  }, []);
+
   useEffect(() => { loadKpis(kpiFilter); },    [kpiFilter]);
   useEffect(() => { loadChart(chartFilter); },  [chartFilter]);
   useEffect(() => { loadEmployees(); },         []);
+  useEffect(() => { loadInventory(); },         []);
 
   // ── Apply custom date range ───────────────────────────────────────────────
   const applyCustomRange = () => {
@@ -673,6 +596,42 @@ useEffect(() => {
     loadChart("Custom", pendingFrom, pendingTo);
     setShowDateModal(false);
   };
+
+  // ── Product click handler ─────────────────────────────────────────────────
+  const handleProductClick = (productSku: string) => {
+    const productLocations = inventory.filter(item => item.sku === productSku);
+    const productInfo = inventorySummary?.byProduct.find(p => p.sku === productSku);
+    
+    if (!productInfo) return;
+
+    const locationBreakdown = productLocations.map(item => ({
+      employeeName: item.employee_name,
+      location: item.location,
+      quantity: item.quantity,
+    }));
+
+    locationBreakdown.sort((a, b) => b.quantity - a.quantity);
+
+    setSelectedProduct({
+      name: productInfo.name,
+      totalQuantity: productInfo.totalQuantity,
+      locations: productLocations.length,
+      locationBreakdown,
+    });
+    
+    setShowProductModal(true);
+  };
+
+  // Format revenue with K/M suffixes
+const formatRevenue = (amount: number): string => {
+  if (amount >= 1000000) {
+    return `KES ${(amount / 1000000).toFixed(1)}M`;
+  }
+  if (amount >= 1000) {
+    return `KES ${(amount / 1000).toFixed(1)}K`;
+  }
+  return `KES ${amount.toLocaleString()}`;
+};
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const onlineCount = employees.filter(e => e.online && e.status === "active").length;
@@ -742,7 +701,6 @@ useEffect(() => {
                 style={{ transform: [{ rotate: showKpiPopover ? "180deg" : "0deg" }] }} />
             </TouchableOpacity>
 
-            {/* ── Inline Popover ── */}
             {showKpiPopover && (
               <View style={styles.kpiPopover}>
                 {KPI_FILTERS.map((f, i) => (
@@ -767,7 +725,6 @@ useEffect(() => {
           </View>
         </View>
 
-        {/* Touch-away to close popover */}
         {showKpiPopover && (
           <TouchableOpacity
             style={StyleSheet.absoluteFillObject}
@@ -780,7 +737,7 @@ useEffect(() => {
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
           style={styles.kpiScroll} contentContainerStyle={styles.kpiScrollContent}>
           {kpiLoading ? (
-            [1,2,3,4,5,6].map(i => (
+            [1,2,3,4,5,6,7].map(i => (
               <View key={i} style={[styles.kpiCard, { backgroundColor: COLORS.background, alignItems: "center", justifyContent: "center" }]}>
                 <ActivityIndicator color={COLORS.primary} size="small" />
               </View>
@@ -789,6 +746,7 @@ useEffect(() => {
             <>
               <KpiCard label="Total Sales"    value={kpis.totalSales}          sub={`${kpiFilter}`}
                 icon={<TrendingUp size={18} color={COLORS.primary} />}   bg={COLORS.cardBg} iconBg={COLORS.primaryMuted} />
+               <KpiCard label="Revenue"   value={formatRevenue(kpis.totalRevenue || 0)} sub={`${kpiFilter}`}    icon={<DollarSign size={18} color={COLORS.success} />}   bg={COLORS.cardBg} iconBg={COLORS.successLight} />
               <KpiCard label="Employees"      value={kpis.totalEmployees}      sub={`${kpis.onlineEmployees} active`}
                 icon={<Users size={18} color={COLORS.accentBlue} />}     bg={COLORS.cardBg} iconBg={COLORS.accentBlueLt} />
               <KpiCard label="Samplers"       value={kpis.totalSamplers}       sub={`${kpiFilter}`}
@@ -802,6 +760,165 @@ useEffect(() => {
             </>
           ) : null}
         </ScrollView>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            STOCK SUMMARY CARD (NEW)
+        ════════════════════════════════════════════════════════════════════ */}
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeader}>
+            <View style={styles.summaryHeaderDot} />
+            <Text style={styles.summaryHeaderLabel}>Stock Summary</Text>
+          </View>
+
+          {inventoryLoading ? (
+            <ActivityIndicator color={COLORS.primary} style={{ paddingVertical: 20 }} />
+          ) : inventorySummary ? (
+            <>
+              {/* Four metrics in a row */}
+              <View style={styles.metricsRow}>
+                <View style={styles.metricCol}>
+                  <View style={[styles.metricIcon, { backgroundColor: COLORS.accentBlueLt }]}>
+                    <Package size={15} color={COLORS.accentBlue} />
+                  </View>
+                  <Text style={[styles.metricValue, { color: COLORS.accentBlue }]}>
+                    {inventorySummary.totalItems}
+                  </Text>
+                  <Text style={styles.metricLabel}>{"Total\nItems"}</Text>
+                </View>
+
+                <View style={[styles.metricCol, styles.metricColBorder]}>
+                  <View style={[styles.metricIcon, { backgroundColor: COLORS.successLight }]}>
+                    <ShoppingCart size={15} color={COLORS.success} />
+                  </View>
+                  <Text style={[styles.metricValue, { color: COLORS.success }]}>
+                    {inventorySummary.totalProducts}
+                  </Text>
+                  <Text style={styles.metricLabel}>Products</Text>
+                </View>
+
+                <View style={[styles.metricCol, styles.metricColBorder]}>
+                  <View style={[styles.metricIcon, { backgroundColor: COLORS.warningLight }]}>
+                    <AlertTriangle size={15} color={COLORS.warning} />
+                  </View>
+                  <Text style={[styles.metricValue, { color: COLORS.warning }]}>
+                    {inventorySummary.lowStockItems}
+                  </Text>
+                  <Text style={styles.metricLabel}>{"Low\nStock"}</Text>
+                </View>
+
+                <View style={[styles.metricCol, styles.metricColBorder]}>
+                  <View style={[styles.metricIcon, { backgroundColor: COLORS.dangerLight }]}>
+                    <TrendingDown size={15} color={COLORS.danger} />
+                  </View>
+                  <Text style={[styles.metricValue, { color: COLORS.danger }]}>
+                    {inventorySummary.outOfStockItems}
+                  </Text>
+                  <Text style={styles.metricLabel}>{"Out of\nStock"}</Text>
+                </View>
+              </View>
+
+              {/* Divider */}
+              <View style={styles.summaryDivider} />
+
+              {/* Health bars */}
+              <View style={styles.healthRow}>
+                <Text style={[styles.healthLabel, { color: COLORS.warning }]}>Low Stock</Text>
+                <View style={styles.healthBarTrack}>
+                  <View
+                    style={[
+                      styles.healthBarFill,
+                      {
+                        backgroundColor: COLORS.warning,
+                        width: `${Math.min(100, Math.round((inventorySummary.lowStockItems / 40) * 100))}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.healthValue, { color: COLORS.warning }]}>
+                  {inventorySummary.lowStockItems}
+                </Text>
+              </View>
+
+              <View style={[styles.healthRow, { marginBottom: 4 }]}>
+                <Text style={[styles.healthLabel, { color: COLORS.danger }]}>Out of Stock</Text>
+                <View style={styles.healthBarTrack}>
+                  <View
+                    style={[
+                      styles.healthBarFill,
+                      {
+                        backgroundColor: COLORS.danger,
+                        width: `${Math.min(100, Math.round((inventorySummary.outOfStockItems / 40) * 100))}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.healthValue, { color: COLORS.danger }]}>
+                  {inventorySummary.outOfStockItems}
+                </Text>
+              </View>
+            </>
+          ) : null}
+        </View>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            PRODUCTS OVERVIEW HORIZONTAL STRIP (NEW)
+        ════════════════════════════════════════════════════════════════════ */}
+        <View style={styles.stripSection}>
+          <View style={styles.stripHeader}>
+            <Text style={styles.stripSectionLabel}>Products Overview</Text>
+          
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.stripScroll}
+          >
+            {inventoryLoading ? (
+              [1,2,3,4].map(i => (
+                <View key={i} style={[styles.productChip, { justifyContent: "center", alignItems: "center" }]}>
+                  <ActivityIndicator color={COLORS.primary} size="small" />
+                </View>
+              ))
+            ) : inventorySummary?.byProduct.map((product) => {
+              const color =
+                product.totalQuantity === 0
+                  ? COLORS.danger
+                  : product.totalQuantity < 10
+                  ? COLORS.warning
+                  : COLORS.success;
+              const colorBg =
+                product.totalQuantity === 0
+                  ? COLORS.dangerLight
+                  : product.totalQuantity < 10
+                  ? COLORS.warningLight
+                  : COLORS.successLight;
+              return (
+                <TouchableOpacity
+                  key={product.sku}
+                  style={styles.productChip}
+                  onPress={() => handleProductClick(product.sku)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.productChipName} numberOfLines={1}>
+                    {product.name}
+                  </Text>
+                  <View style={[styles.productChipQtyWrap,]}>
+                    <Text style={[styles.productChipQty, { color }]}>
+                      {product.totalQuantity}
+                    </Text>
+                  </View>
+                  <Text style={styles.productChipLocs}>
+                    {product.locations} location{product.locations !== 1 ? "s" : ""}
+                  </Text>
+                  <View style={styles.productChipFooter}>
+                    <Text style={styles.productChipFooterText}>Tap for details</Text>
+                    <ChevronDown size={8} color={COLORS.textMuted} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
 
         {/* Sales Chart */}
         <View style={styles.card}>
@@ -901,16 +1018,16 @@ useEffect(() => {
         </View>
       </ScrollView>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
+      {/* ═══════════════════════════════════════════════════════════════════
           NOTIFICATION MODAL
-      ════════════════════════════════════════════════════════════════════════ */}
+      ════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showNotifModal} transparent animationType="slide"
         onRequestClose={() => setShowNotifModal(false)}>
         <View style={styles.modalOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject}
             onPress={() => setShowNotifModal(false)} activeOpacity={1} />
           <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 16 }]}>
-            <View style={styles.sheetHandle} />
+         
             <View style={styles.sheetHeader}>
               <View>
                 <Text style={styles.sheetTitle}>Notifications</Text>
@@ -946,9 +1063,9 @@ useEffect(() => {
         </View>
       </Modal>
 
-      {/* ═══════════════════════════════════════════════════════════════════════
+      {/* ═══════════════════════════════════════════════════════════════════
           CUSTOM DATE RANGE MODAL
-      ════════════════════════════════════════════════════════════════════════ */}
+      ════════════════════════════════════════════════════════════════════ */}
       <Modal visible={showDateModal} transparent animationType="slide"
         onRequestClose={() => setShowDateModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -956,7 +1073,7 @@ useEffect(() => {
             <TouchableOpacity style={StyleSheet.absoluteFillObject}
               onPress={() => setShowDateModal(false)} activeOpacity={1} />
             <View style={[styles.bottomSheet, styles.dateSheet, { paddingBottom: insets.bottom + 16 }]}>
-              <View style={styles.sheetHandle} />
+            
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle}>Custom Date Range</Text>
                 <TouchableOpacity onPress={() => setShowDateModal(false)} style={styles.sheetCloseBtn}>
@@ -964,7 +1081,6 @@ useEffect(() => {
                 </TouchableOpacity>
               </View>
 
-              {/* Range display pills */}
               <View style={styles.rangeRow}>
                 <TouchableOpacity
                   style={[styles.rangePill, calendarTarget === "from" && styles.rangePillActive]}
@@ -989,7 +1105,6 @@ useEffect(() => {
                 </TouchableOpacity>
               </View>
 
-              {/* Calendar */}
               <MiniCalendar
                 value={calendarTarget === "from" ? pendingFrom : pendingTo}
                 onChange={iso => {
@@ -1006,7 +1121,6 @@ useEffect(() => {
                 minDate={calendarTarget === "to" ? pendingFrom : undefined}
               />
 
-              {/* Apply */}
               <TouchableOpacity style={styles.applyBtn} onPress={applyCustomRange} activeOpacity={0.85}>
                 <Check size={16} color="#fff" strokeWidth={2.5} />
                 <Text style={styles.applyBtnText}>Apply Range</Text>
@@ -1014,6 +1128,160 @@ useEffect(() => {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          PRODUCT DETAIL MODAL (NEW)
+      ════════════════════════════════════════════════════════════════════ */}
+      <Modal
+        visible={showProductModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowProductModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => setShowProductModal(false)}
+          />
+          <View style={styles.modalSheet}>
+            <TouchableOpacity
+              style={styles.modalCloseBtn}
+              onPress={() => setShowProductModal(false)}
+              activeOpacity={0.7}
+            >
+              <X size={20} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+            <View style={styles.modalHandle} />
+
+            {selectedProduct && (
+              <>
+                {/* Product Header */}
+                <View style={styles.productModalHeader}>
+                  <View style={styles.productModalIcon}>
+                    <Package size={24} color={COLORS.primary} />
+                  </View>
+                  <View style={styles.productModalInfo}>
+                    <Text style={styles.productModalName}>{selectedProduct.name}</Text>
+                    <View style={styles.productModalStats}>
+                      <View style={styles.productModalStat}>
+                        <Text style={styles.productModalStatValue}>
+                          {selectedProduct.totalQuantity}
+                        </Text>
+                        <Text style={styles.productModalStatLabel}>Total Units</Text>
+                      </View>
+                      <View style={styles.productModalDivider} />
+                      <View style={styles.productModalStat}>
+                        <Text style={styles.productModalStatValue}>
+                          {selectedProduct.locations}
+                        </Text>
+                        <Text style={styles.productModalStatLabel}>
+                          Location{selectedProduct.locations !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Stock Level Bar */}
+                <View style={styles.productModalStockBar}>
+                  <View style={styles.productModalStockInfo}>
+                    <Text style={styles.productModalStockLabel}>Stock Level</Text>
+                    <Text style={styles.productModalStockPercent}>
+                      {selectedProduct.totalQuantity === 0 
+                        ? 'Out of Stock'
+                        : selectedProduct.totalQuantity < 5 
+                        ? 'Low Stock'
+                        : selectedProduct.totalQuantity < 10 
+                        ? 'Moderate'
+                        : 'Healthy'}
+                    </Text>
+                  </View>
+                  <View style={styles.productModalBarTrack}>
+                    <View 
+                      style={[
+                        styles.productModalBarFill,
+                        { 
+                          width: `${Math.min(100, Math.round((selectedProduct.totalQuantity / 40) * 100))}%`,
+                          backgroundColor: selectedProduct.totalQuantity === 0 
+                            ? COLORS.danger 
+                            : selectedProduct.totalQuantity < 5 
+                            ? COLORS.warning 
+                            : COLORS.success
+                        }
+                      ]} 
+                    />
+                  </View>
+                </View>
+
+                {/* Location Breakdown */}
+                <Text style={styles.productModalSectionTitle}>Location Breakdown</Text>
+                
+                {selectedProduct.locationBreakdown.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <MapPin size={32} color={COLORS.textMuted} />
+                    <Text style={styles.emptyTitle}>No Locations Found</Text>
+                    <Text style={styles.emptySubtitle}>
+                      This product hasn't been stocked at any location yet.
+                    </Text>
+                  </View>
+                ) : (
+                  <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
+                    {selectedProduct.locationBreakdown.map((location, index) => (
+                      <View key={index} style={styles.locationRow}>
+                        <View style={styles.locationRowLeft}>
+                          <View style={[
+                            styles.locationDot,
+                            { 
+                              backgroundColor: location.quantity === 0 
+                                ? COLORS.danger 
+                                : location.quantity < 5 
+                                ? COLORS.warning 
+                                : COLORS.success 
+                            }
+                          ]} />
+                          <View style={styles.locationInfo}>
+                            <Text style={styles.locationName}>{location.employeeName}</Text>
+                            <View style={styles.locationMeta}>
+                              <MapPin size={10} color={COLORS.textMuted} />
+                              <Text style={styles.locationAddress}>{location.location}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <View style={styles.locationQtyBadge}>
+                          <Text style={[
+                            styles.locationQtyText,
+                            { 
+                              color: location.quantity === 0 
+                                ? COLORS.danger 
+                                : location.quantity < 5 
+                                ? COLORS.warning 
+                                : COLORS.textPrimary 
+                            }
+                          ]}>
+                            {location.quantity}
+                          </Text>
+                          <Text style={styles.locationQtyUnit}>units</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+
+                {/* Footer Actions */}
+                <View style={styles.productModalActions}>
+                  <TouchableOpacity
+                    style={[styles.productModalBtn, { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border }]}
+                    onPress={() => setShowProductModal(false)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.productModalBtnText, { color: COLORS.textSecondary }]}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1059,9 +1327,7 @@ const styles = StyleSheet.create({
   },
   notifDotText: { fontSize: 8, fontWeight: "800", color: "#fff" },
 
-  scroll:        { flex: 1, backgroundColor: COLORS.background, 
-    // borderTopLeftRadius: 24, borderTopRightRadius: 24,
-     marginTop: -8 },
+  scroll:        { flex: 1, backgroundColor: COLORS.background, marginTop: -8 },
   scrollContent: { paddingTop: 20, paddingHorizontal: 18 },
 
   // ── KPI filter row + popover ──
@@ -1078,7 +1344,6 @@ const styles = StyleSheet.create({
   },
   kpiFilterText: { fontSize: 12, fontWeight: "700", color: COLORS.primary },
 
-  // Inline popover
   kpiPopover: {
     position: "absolute", top: 38, right: 0,
     backgroundColor: COLORS.cardBg,
@@ -1104,9 +1369,10 @@ const styles = StyleSheet.create({
   kpiScroll:        { marginBottom: 16 },
   kpiScrollContent: { gap: 12, paddingRight: 4 },
   kpiCard: {
-    width: 135, borderRadius: 18, padding: 14,
-    shadowColor: COLORS.textPrimary, shadowOpacity: 0.05,
-    shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2, minHeight: 120,
+    width: 110, borderWidth: 1, borderRadius: 12, padding: 12,
+    shadowColor: COLORS.textPrimary, 
+    borderColor: COLORS.border,
+   minHeight: 120,
   },
   kpiIconWrap: {
     width: 36, height: 36, borderRadius: 10,
@@ -1115,6 +1381,157 @@ const styles = StyleSheet.create({
   kpiValue: { fontSize: 22, fontWeight: "900", color: COLORS.textPrimary, letterSpacing: -0.5 },
   kpiLabel: { fontSize: 11, fontWeight: "600", color: COLORS.textMuted, marginTop: 2 },
   kpiSub:   { fontSize: 9, color: COLORS.textMuted, marginTop: 4, fontWeight: "500" },
+
+  // ── Stock Summary Card (NEW) ──
+  summaryCard: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 16,
+    overflow: "hidden",
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 0,
+  },
+  summaryHeaderDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
+  },
+  summaryHeaderLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  metricCol: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 14,
+    paddingBottom: 16,
+    gap: 5,
+  },
+  metricColBorder: {
+    borderLeftWidth: 1,
+    borderLeftColor: COLORS.border,
+  },
+  metricIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  metricValue: {
+    fontSize: 26,
+    fontWeight: "900",
+    letterSpacing: -1,
+    lineHeight: 28,
+  },
+  metricLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    textAlign: "center",
+    lineHeight: 13,
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginHorizontal: 16,
+  },
+  healthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  healthLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    minWidth: 80,
+  },
+  healthBarTrack: {
+    flex: 1,
+    height: 6,
+    backgroundColor: COLORS.background,
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  healthBarFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  healthValue: {
+    fontSize: 13,
+    fontWeight: "900",
+    minWidth: 20,
+    textAlign: "right",
+  },
+
+  // ── Products Overview Strip (NEW) ──
+  stripSection: { marginBottom: 14 },
+  stripHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  stripSectionLabel: {
+    fontSize: 11, fontWeight: "800", color: COLORS.textSecondary,
+    textTransform: "uppercase", letterSpacing: 0.6,
+  },
+  stripScroll: { paddingRight: 4, gap: 8, flexDirection: "row" },
+  productChip: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 12,
+    minWidth: 110,
+  },
+  productChipName: {
+    fontSize: 11, fontWeight: "700", color: COLORS.textSecondary,
+    marginBottom: 6,
+  },
+  productChipQtyWrap: {
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+    alignSelf: "flex-start", marginBottom: 6,
+  },
+  productChipQty: { fontSize: 20, fontWeight: "900", letterSpacing: -0.5 },
+  productChipLocs: { fontSize: 10, color: COLORS.textMuted, fontWeight: "500" },
+  productChipFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  productChipFooterText: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
 
   // ── Chart card ──
   card: {
@@ -1193,9 +1610,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 12,
   },
   dateSheet:   { },
-  sheetHandle: {
+  modalSheet: {
+    backgroundColor: COLORS.cardBg, borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    padding: 24, maxHeight: "80%",
+  },
+  modalHandle: {
     width: 44, height: 5, borderRadius: 3,
     backgroundColor: COLORS.border, alignSelf: "center", marginBottom: 16,
+  },
+  modalCloseBtn: {
+    position: "absolute", top: 16, right: 16, zIndex: 10,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: COLORS.background,
+    alignItems: "center", justifyContent: "center",
   },
   sheetHeader: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16,
@@ -1236,6 +1663,183 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 15, marginTop: 8,
   },
   applyBtnText: { fontSize: 15, fontWeight: "800", color: COLORS.white, letterSpacing: 0.3 },
+
+  // ── Product Modal Styles (NEW) ──
+  productModalHeader: {
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 20,
+  },
+  productModalIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: COLORS.primaryMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryMid,
+  },
+  productModalInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  productModalName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  productModalStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  productModalStat: {
+    alignItems: 'center',
+  },
+  productModalStatValue: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: COLORS.textPrimary,
+    lineHeight: 20,
+  },
+  productModalStatLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  productModalDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: COLORS.border,
+  },
+  productModalStockBar: {
+    backgroundColor: COLORS.background,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  productModalStockInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  productModalStockLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  productModalStockPercent: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+  },
+  productModalBarTrack: {
+    height: 6,
+    backgroundColor: COLORS.white,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  productModalBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  productModalSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 12,
+  },
+  emptyState: { alignItems: "center", paddingVertical: 40, gap: 8 },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: COLORS.textPrimary },
+  emptySubtitle: {
+    fontSize: 12, color: COLORS.textMuted, textAlign: "center", lineHeight: 18,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  locationRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  locationDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  locationInfo: {
+    flex: 1,
+  },
+  locationName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  locationMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+  },
+  locationAddress: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontWeight: '500',
+  },
+  locationQtyBadge: {
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 60,
+  },
+  locationQtyText: {
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  locationQtyUnit: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    marginTop: 1,
+  },
+  productModalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 20,
+  },
+  productModalBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: 12,
+    paddingVertical: 13,
+  },
+  productModalBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });
 
 export default AdminDashboardScreen;
